@@ -36,20 +36,35 @@ struct MeetingScheduleButton: View {
     }
 
     private var controls: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("会议时间").font(.headline)
-            Text(NoteLine(id: 0, raw: reference.expectedRaw).displayText)
-                .font(.system(size: 12)).lineLimit(2).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("会议时间").font(.system(size: 13, weight: .semibold))
+                Text(NoteLine(id: 0, raw: reference.expectedRaw).displayText)
+                    .font(.system(size: 11)).lineLimit(2).foregroundStyle(.secondary)
+            }
             DatePicker("日期", selection: $date, displayedComponents: .date)
                 .datePickerStyle(.graphical)
-            DatePicker("时间", selection: $date, displayedComponents: .hourAndMinute)
-            Picker("提醒", selection: $reminder) {
-                Text("不提醒").tag(-1)
-                Text("会议开始时").tag(0)
-                ForEach([5, 10, 15, 30, 60, 1440], id: \.self) { minutes in
-                    Text(minutes == 1440 ? "提前 1 天" : "提前 \(minutes) 分钟").tag(minutes)
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .center)
+            VStack(spacing: 8) {
+                HStack {
+                    Text("时间").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    DatePicker("时间", selection: $date, displayedComponents: .hourAndMinute)
+                        .labelsHidden().fixedSize()
                 }
-            }
+                HStack {
+                    Text("提醒").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Picker("提醒", selection: $reminder) {
+                        Text("不提醒").tag(-1)
+                        Text("会议开始时").tag(0)
+                        ForEach([5, 10, 15, 30, 60, 1440], id: \.self) { minutes in
+                            Text(minutes == 1440 ? "提前 1 天" : "提前 \(minutes) 分钟").tag(minutes)
+                        }
+                    }.labelsHidden().frame(width: 136)
+                }
+            }.controlSize(.small)
             if reminder >= 0 {
                 Text(reminders?.statusText ?? "提醒通过 macOS 通知发送。")
                     .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -59,7 +74,8 @@ struct MeetingScheduleButton: View {
                 }
             }
             if let error { Text(error).font(.system(size: 10)).foregroundStyle(.red) }
-            HStack {
+            Divider().padding(.top, 2)
+            HStack(spacing: 8) {
                 if plan != nil {
                     Button("清除时间") { store.clearMeetingPlan(reference); presented = false }
                 }
@@ -76,8 +92,8 @@ struct MeetingScheduleButton: View {
                         presented = false
                     }
                 }.keyboardShortcut(.defaultAction).disabled(saving || (reminder >= 0 && date.addingTimeInterval(-Double(reminder) * 60) <= .now))
-            }
-        }.padding(16).frame(width: 290)
+            }.controlSize(.small)
+        }.padding(14).frame(width: 236)
             .environment(\.locale, Locale(identifier: "zh_CN"))
             .onAppear {
                 error = nil

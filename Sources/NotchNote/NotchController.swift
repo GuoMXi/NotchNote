@@ -22,7 +22,7 @@ final class NotchController: NSObject {
     private var pointerHasEntered = false
     private var activeInteractions: Set<String> = []
 
-    init(store: NoteStore = NoteStore()) {
+    init(store: NoteStore = NoteStore(), reminders: MeetingReminders? = nil) {
         self.store = store
         super.init()
         panel.isOpaque = false
@@ -33,7 +33,7 @@ final class NotchController: NSObject {
         panel.isReleasedWhenClosed = false
         panel.becomesKeyOnlyIfNeeded = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        let host = NSHostingView(rootView: NotchView(store: store, state: state,
+        let host = NSHostingView(rootView: NotchView(store: store, state: state, reminders: reminders,
             onEdit: { [weak self] in self?.edit() },
             onToggleEditor: { [weak self] in self?.toggleEditor() },
             onClose: { [weak self] in self?.collapse() },
@@ -54,7 +54,7 @@ final class NotchController: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(applicationActivated),
             name: NSApplication.didBecomeActiveNotification, object: NSApp)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.window === self.panel, event.keyCode == 53,
+            guard let self, event.window === self.panel, event.keyCode == 53, self.activeInteractions.isEmpty,
                   (self.panel.firstResponder as? NSTextView)?.hasMarkedText() != true else { return event }
             self.collapse(animated: false)
             return nil

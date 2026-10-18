@@ -188,7 +188,8 @@ final class EditorTextView: NSTextView {
         return EditorStyle(fontFamily: NSFontManager.shared.availableFontFamilies.contains(family) ? family : "",
                            size: font.pointSize, bold: traits.contains(.boldFontMask),
                            italic: traits.contains(.italicFontMask),
-                           underline: (attributes[.underlineStyle] as? Int ?? 0) != 0, meeting: line.isMeeting)
+                           underline: (attributes[.underlineStyle] as? Int ?? 0) != 0, meeting: line.isMeeting,
+                           lineIndex: source.substring(to: lineRange.location).components(separatedBy: "\n").count - 1)
     }
 
     func reportStyle() { onStyleChanged?(currentStyle) }

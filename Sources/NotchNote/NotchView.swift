@@ -25,6 +25,7 @@ struct NotchView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var store: NoteStore
     @Bindable var state: PanelState
+    let reminders: MeetingReminders?
     let onEdit: () -> Void
     let onToggleEditor: () -> Void
     let onClose: () -> Void
@@ -121,7 +122,7 @@ struct NotchView: View {
                     Text("这里编辑直接记录的会议，项目中的会议会在汇总中自动显示。")
                         .font(.system(size: 10)).foregroundStyle(.secondary).padding(.bottom, 6)
                 }
-                FormattingBar(state: state, onCommand: { command in
+                FormattingBar(state: state, store: store, reminders: reminders, onCommand: { command in
                     state.formatCommand = command
                     state.formatID += 1
                 }, onInteraction: onInteraction)
@@ -135,7 +136,7 @@ struct NotchView: View {
                     editor
                 }
             } else if store.isMeetingOverview {
-                MeetingOverview(store: store, onWrite: onEdit, onOpenMeeting: onOpenMeeting)
+                MeetingOverview(store: store, reminders: reminders, onWrite: onEdit, onOpenMeeting: onOpenMeeting, onInteraction: onInteraction)
             } else {
                 preview
             }
@@ -186,6 +187,12 @@ struct NotchView: View {
             .id(id)
     }
 
+    private func scheduleButton(for rendered: RichText.Line) -> MeetingScheduleButton? {
+        guard rendered.line.isMeeting,
+              let reference = store.reference(forLine: rendered.id, in: store.selectedID) else { return nil }
+        return MeetingScheduleButton(store: store, reference: reference, reminders: reminders, onInteraction: onInteraction)
+    }
+
     private var preview: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 9) {
@@ -201,7 +208,8 @@ struct NotchView: View {
                     }.padding(.top, 20)
                 } else {
                     ForEach(RichText.lines(store.attributedText(in: store.selectedID))) { rendered in
-                        NoteLineRow(rendered: rendered, onToggle: { store.toggle(rendered.id) }, onEdit: onEdit)
+                        NoteLineRow(rendered: rendered, onToggle: { store.toggle(rendered.id) }, onEdit: onEdit,
+                                    schedule: scheduleButton(for: rendered))
                     }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)

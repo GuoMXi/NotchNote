@@ -12,6 +12,8 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: NotchController?
+    private var reminders: MeetingReminders?
+    private var terminationPending = false
     private var shortcut: GlobalShortcut?
     private var statusItem: NSStatusItem?
 
@@ -22,7 +24,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         installEditMenu()
-        let controller = NotchController()
+        let store = NoteStore()
+        let reminders = MeetingReminders(store: store)
+        self.reminders = reminders
+        let controller = NotchController(store: store, reminders: reminders)
+        reminders.onOpen = { [weak controller] id in
+            guard let controller, let plan = controller.store.meetingPlans.first(where: { $0.id == id }),
+                  let reference = controller.store.reference(forLine: plan.lineIndex, in: plan.sectionID) else { return }
+            controller.openMeeting(reference)
+        }
         self.controller = controller
         let shortcut = GlobalShortcut { [weak controller] in controller?.toggle() }
         controller.state.shortcutAvailable = shortcut.register()
@@ -54,7 +64,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         controller?.store.save()
-        guard let store = controller?.store, store.saveError != nil, store.hasContent else { return .terminateNow }
+        guard let store = controller?.store, store.saveError != nil, store.hasContent else {
+            guard let reminders else { return .terminateNow }
+            if !terminationPending {
+                terminationPending = true
+                Task {
+                    await reminders.synchronizeNow()
+                    sender.reply(toApplicationShouldTerminate: true)
+                }
+            }
+            return .terminateLater
+        }
         let alert = NSAlert()
         alert.messageText = "便笺尚未成功保存"
         alert.informativeText = "请先返回便笺，使用导出按钮备份内容。"
@@ -66,6 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return .terminateNow
     }
+
+    func applicationDidBecomeActive(_ notification: Notification) { reminders?.scheduleSync() }
 
     @objc private func openNote() { controller?.edit() }
     @objc private func exportNote() { controller?.export() }

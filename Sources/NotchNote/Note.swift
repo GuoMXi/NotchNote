@@ -47,6 +47,7 @@ nonisolated struct NotebookDocument: Codable {
     var sections: [NoteSection]
     var selectedID: UUID
     var meetingsSectionID: UUID? = nil
+    var meetingPlans: [MeetingPlan]? = nil
 }
 
 /// Converts standalone 【section titles】, preserving ungrouped text and completion marks.
@@ -82,6 +83,8 @@ nonisolated enum NotebookMigration {
     private(set) var sections: [NoteSection]
     private(set) var selectedID: UUID
     private(set) var meetingsSectionID: UUID
+    private(set) var meetingPlans: [MeetingPlan] = []
+    @ObservationIgnored var onSave: (() -> Void)?
     private(set) var saveError: String?
     private(set) var savedAt: Date?
     private let url: URL
@@ -119,19 +122,20 @@ nonisolated enum NotebookMigration {
                 !rendered.line.displayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 result.append(ProjectMeeting(reference: MeetingReference(sectionID: section.id, lineIndex: rendered.id,
                                                                         expectedRaw: rendered.line.raw),
-                                             projectTitle: section.title, rendered: rendered))
+                                             projectTitle: section.title, rendered: rendered,
+                                             plan: plan(in: section.id, line: rendered.id)))
             }
         }
-        return result.filter { !$0.rendered.line.isDone } + result.filter { $0.rendered.line.isDone }
+        return sortedMeetings(result)
     }
 
     func resolve(_ reference: MeetingReference) -> NoteLine? {
-        guard let section = sections.first(where: { $0.id == reference.sectionID }), section.id != meetingsSectionID else { return nil }
+        guard let section = sections.first(where: { $0.id == reference.sectionID }) else { return nil }
         let lines = NoteLine.parse(section.text)
         if lines.indices.contains(reference.lineIndex), lines[reference.lineIndex].raw == reference.expectedRaw {
-            return lines[reference.lineIndex].isMeeting ? lines[reference.lineIndex] : nil
+            return lines[reference.lineIndex].isMeeting || section.id == meetingsSectionID ? lines[reference.lineIndex] : nil
         }
-        let matches = lines.filter { $0.raw == reference.expectedRaw && $0.isMeeting }
+        let matches = lines.filter { $0.raw == reference.expectedRaw && ($0.isMeeting || section.id == meetingsSectionID) }
         return matches.count == 1 ? matches[0] : nil
     }
 
@@ -150,6 +154,73 @@ nonisolated enum NotebookMigration {
         updateRichText(value, in: id)
     }
 
+    func reference(forLine index: Int, in id: UUID) -> MeetingReference? {
+        let lines = NoteLine.parse(text(in: id))
+        guard lines.indices.contains(index), !lines[index].displayText.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return MeetingReference(sectionID: id, lineIndex: index, expectedRaw: lines[index].raw)
+    }
+
+    func plan(in id: UUID, line: Int) -> MeetingPlan? {
+        let lines = NoteLine.parse(text(in: id))
+        guard lines.indices.contains(line) else { return nil }
+        return meetingPlans.first { $0.sectionID == id && $0.lineIndex == line && $0.raw == lines[line].raw }
+    }
+
+    var overviewMeetings: [ProjectMeeting] {
+        var result = projectMeetings
+        for rendered in RichText.lines(attributedText(in: meetingsSectionID)) where
+            (rendered.line.isTask || rendered.line.isMeeting) && !rendered.line.displayText.trimmingCharacters(in: .whitespaces).isEmpty {
+            result.append(ProjectMeeting(reference: MeetingReference(sectionID: meetingsSectionID, lineIndex: rendered.id, expectedRaw: rendered.line.raw),
+                                         projectTitle: "直接记录", rendered: rendered,
+                                         plan: plan(in: meetingsSectionID, line: rendered.id)))
+        }
+        return sortedMeetings(result)
+    }
+
+    private func sortedMeetings(_ meetings: [ProjectMeeting]) -> [ProjectMeeting] {
+        meetings.enumerated().sorted { a, b in
+            if a.element.rendered.line.isDone != b.element.rendered.line.isDone { return !a.element.rendered.line.isDone }
+            let first = a.element.plan?.date ?? .distantFuture
+            let second = b.element.plan?.date ?? .distantFuture
+            return first == second ? a.offset < b.offset : first < second
+        }.map(\.element)
+    }
+
+    @discardableResult func setMeetingPlan(_ reference: MeetingReference, date: Date, reminderMinutes: Int?) -> Bool {
+        guard date.timeIntervalSince1970.isFinite,
+              reminderMinutes == nil || [0, 5, 10, 15, 30, 60, 1440].contains(reminderMinutes!) else { return false }
+        var target = reference
+        if resolve(target) == nil {
+            guard let current = self.reference(forLine: reference.lineIndex, in: reference.sectionID),
+                  current == reference else { return false }
+            toggleMeetingMark(reference.lineIndex, in: reference.sectionID)
+            guard let marked = self.reference(forLine: reference.lineIndex, in: reference.sectionID) else { return false }
+            target = marked
+        }
+        if let line = resolve(target), !line.isTask && !line.isMeeting {
+            toggleMeetingMark(line.id, in: target.sectionID)
+            guard let marked = self.reference(forLine: line.id, in: target.sectionID) else { return false }
+            target = marked
+        }
+        guard let line = resolve(target), !line.displayText.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        let existing = plan(in: reference.sectionID, line: line.id)
+        meetingPlans.removeAll { $0.sectionID == reference.sectionID && $0.lineIndex == line.id }
+        meetingPlans.append(MeetingPlan(id: existing?.id ?? UUID(), sectionID: reference.sectionID,
+                                       lineIndex: line.id, raw: line.raw, date: date, reminderMinutes: reminderMinutes))
+        save()
+        return saveError == nil
+    }
+
+    func clearMeetingPlan(_ reference: MeetingReference) {
+        guard let line = resolve(reference) else { return }
+        meetingPlans.removeAll { $0.sectionID == reference.sectionID && $0.lineIndex == line.id }
+        save()
+    }
+
+    private func reconcilePlans(in id: UUID, old: String, new: String) {
+        meetingPlans = MeetingAnchors.reconcile(meetingPlans, sectionID: id, old: old, new: new, hub: id == meetingsSectionID)
+    }
+
     func text(in id: UUID) -> String { sections.first(where: { $0.id == id })?.text ?? "" }
 
     func attributedText(in id: UUID) -> NSAttributedString {
@@ -162,6 +233,7 @@ nonisolated enum NotebookMigration {
         do {
             let data = try RichText.encode(value)
             guard sections[index].text != value.string || sections[index].richText != data else { return }
+            reconcilePlans(in: id, old: sections[index].text, new: value.string)
             sections[index].text = value.string
             sections[index].richText = data
             save()
@@ -182,6 +254,7 @@ nonisolated enum NotebookMigration {
 
     func updateText(_ value: String, in id: UUID) {
         guard let index = sections.firstIndex(where: { $0.id == id }), sections[index].text != value else { return }
+        reconcilePlans(in: id, old: sections[index].text, new: value)
         sections[index].text = value
         sections[index].richText = nil
         save()
@@ -213,6 +286,7 @@ nonisolated enum NotebookMigration {
                         throw CocoaError(.fileReadCorruptFile)
                     }
                     sections = document.sections
+                    meetingPlans = document.meetingPlans ?? []
                     selectedID = sections.contains { $0.id == document.selectedID } ? document.selectedID : sections[0].id
                     if let id = document.meetingsSectionID, sections.contains(where: { $0.id == id }) {
                         meetingsSectionID = id
@@ -234,6 +308,20 @@ nonisolated enum NotebookMigration {
                 sections.insert(meetings, at: 0)
                 meetingsSectionID = meetings.id
             }
+        }
+        var usedPlanIDs = Set<UUID>(), usedPlanLines = Set<String>()
+        meetingPlans = meetingPlans.filter { plan in
+            guard let section = sections.first(where: { $0.id == plan.sectionID }) else { return false }
+            let lines = NoteLine.parse(section.text)
+            guard lines.indices.contains(plan.lineIndex), lines[plan.lineIndex].raw == plan.raw,
+                  (section.id == meetingsSectionID || lines[plan.lineIndex].isMeeting),
+                  !lines[plan.lineIndex].displayText.trimmingCharacters(in: .whitespaces).isEmpty,
+                  plan.date.timeIntervalSince1970.isFinite,
+                  plan.reminderMinutes == nil || [0, 5, 10, 15, 30, 60, 1440].contains(plan.reminderMinutes!) else { return false }
+            let slot = "\(plan.sectionID):\(plan.lineIndex)"
+            guard !usedPlanIDs.contains(plan.id), !usedPlanLines.contains(slot) else { return false }
+            usedPlanIDs.insert(plan.id); usedPlanLines.insert(slot)
+            return true
         }
         if legacyData != nil { save() }
     }
@@ -286,10 +374,11 @@ nonisolated enum NotebookMigration {
                 try legacyData.write(to: backup, options: .atomic)
             }
             let data = try JSONEncoder().encode(NotebookDocument(sections: sections, selectedID: selectedID,
-                                                               meetingsSectionID: meetingsSectionID))
+                                                               meetingsSectionID: meetingsSectionID, meetingPlans: meetingPlans))
             try data.write(to: url, options: .atomic)
             legacyData = nil
             savedAt = .now
+            onSave?()
             saveError = nil
         } catch {
             saveError = "保存失败，请导出内容备份，或检查磁盘空间与文件权限。"

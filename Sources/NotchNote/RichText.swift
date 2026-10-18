@@ -54,4 +54,5 @@ struct EditorStyle: Equatable {
     var italic = false
     var underline = false
     var meeting = false
+    var lineIndex = 0
 }

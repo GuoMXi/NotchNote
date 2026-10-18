@@ -3,6 +3,8 @@ import AppKit
 
 struct FormattingBar: View {
     @Bindable var state: PanelState
+    let store: NoteStore
+    let reminders: MeetingReminders?
     let onCommand: (EditorCommand) -> Void
     let onInteraction: (String, Bool) -> Void
 
@@ -28,8 +30,12 @@ struct FormattingBar: View {
             }.help("标记或取消当前行为会议 · ⌘⇧M")
                 .accessibilityLabel("切换当前行为会议")
                 .accessibilityValue(state.editorStyle.meeting ? "已标记" : "未标记")
+            if let reference = store.reference(forLine: state.editorStyle.lineIndex, in: store.selectedID) {
+                MeetingScheduleButton(store: store, reference: reference, reminders: reminders,
+                                      onInteraction: onInteraction, compact: false)
+            }
             Spacer(minLength: 0)
-            Text("选中文字调整格式").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+            Text("选字设格式").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
         }
         .buttonStyle(.plain)
         .padding(.bottom, 6)

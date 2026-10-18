@@ -10,6 +10,7 @@ struct ProjectMeeting: Identifiable {
     let reference: MeetingReference
     let projectTitle: String
     let rendered: RichText.Line
+    var plan: MeetingPlan? = nil
     var id: String { "\(reference.sectionID):\(reference.lineIndex)" }
 }
 

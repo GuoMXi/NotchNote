@@ -53,20 +53,24 @@ struct MeetingOverview: View {
 
                 if !meetings.isEmpty {
                     caption("来自项目 · 自动汇总")
-                    ForEach(meetings) { meeting in
-                        VStack(alignment: .leading, spacing: 5) {
-                            Button { onOpenMeeting(meeting.reference) } label: {
-                                Label(meeting.projectTitle, systemImage: "arrow.up.right")
-                                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-                            }.buttonStyle(.plain)
-                                .help("回到项目，编辑这条会议")
-                                .accessibilityLabel("在项目“\(meeting.projectTitle)”中编辑会议")
-                            NoteLineRow(rendered: meeting.rendered,
-                                        onToggle: { store.toggleMeeting(meeting.reference) },
-                                        onEdit: { onOpenMeeting(meeting.reference) },
-                                        meetingCheckbox: true, showMeetingBadge: false)
+                    VStack(alignment: .leading, spacing: 9) {
+                        ForEach(meetings) { meeting in
+                            HStack(alignment: .top, spacing: 6) {
+                                NoteLineRow(rendered: meeting.rendered,
+                                            onToggle: { store.toggleMeeting(meeting.reference) },
+                                            onEdit: { onOpenMeeting(meeting.reference) },
+                                            meetingCheckbox: true, showMeetingBadge: false)
+                                Button { onOpenMeeting(meeting.reference) } label: {
+                                    Image(systemName: "arrow.up.right")
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 20, height: 23)
+                                        .contentShape(Rectangle())
+                                }.buttonStyle(.plain)
+                                    .help("来自\(meeting.projectTitle)，点击回到原项目")
+                                    .accessibilityLabel("在项目“\(meeting.projectTitle)”中编辑会议")
+                            }
                         }
-                        .padding(9).background(.black.opacity(0.025), in: RoundedRectangle(cornerRadius: 8))
                     }
                 }
 

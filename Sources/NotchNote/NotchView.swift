@@ -7,7 +7,7 @@ enum PanelMode { case collapsed, preview, editing }
     // Keep the outgoing contents mounted until the paper has slid back into the notch.
     var contentMode = PanelMode.preview
     var revealed = false
-    var surfaceSize = CGSize(width: 420, height: 430)
+    var surfaceSize = CGSize(width: 500, height: 430)
     var compactWidth: CGFloat = 100
     var focusID = 0
     var taskID = 0
@@ -23,6 +23,8 @@ struct NotchView: View {
     let onEdit: () -> Void
     let onClose: () -> Void
     let onEscape: () -> Void
+    let onSelectSection: (UUID) -> Void
+    let onAddSection: (String) -> Void
     let onExport: () -> Void
 
     private let paper = Color(red: 0.98, green: 0.97, blue: 0.92)
@@ -82,10 +84,18 @@ struct NotchView: View {
     }
 
     private var paperContents: some View {
+        HStack(spacing: 0) {
+            notePaper
+            ProjectBookmarks(store: store, onSelect: onSelectSection, onAdd: onAddSection)
+        }
+    }
+
+    private var notePaper: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
-                Text("留在这里，就不会忘。")
+                Text(store.selectedSection.title)
                     .font(.system(size: 20, weight: .semibold))
+                    .lineLimit(1).minimumScaleFactor(0.7)
                 Spacer(minLength: 4)
                 if store.pendingCount > 0 {
                     Text("\(store.pendingCount) 件待办")
@@ -101,8 +111,7 @@ struct NotchView: View {
                             .foregroundStyle(ink.opacity(0.4)).padding(.top, 10).padding(.leading, 6)
                             .allowsHitTesting(false)
                     }
-                    NoteEditor(text: $store.text, focusID: state.focusID,
-                               taskID: state.taskID, onEscape: onEscape)
+                    editor
                 }
             } else {
                 preview
@@ -127,7 +136,7 @@ struct NotchView: View {
                 }
                 Spacer(minLength: 0)
                 Button(action: onExport) { Image(systemName: "square.and.arrow.up") }
-                    .help("导出纯文本备份").accessibilityLabel("导出便笺")
+                    .help("导出全部栏目为纯文本备份").accessibilityLabel("导出全部栏目")
                 Text(store.saveError == nil ? (store.savedAt == nil ? "本机保存" : "已保存") : "保存异常")
                     .foregroundStyle(store.saveError == nil ? ink.opacity(0.45) : .red)
             }
@@ -142,7 +151,14 @@ struct NotchView: View {
         }
         .foregroundStyle(ink).padding(20).background(paper)
         .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 18, bottomTrailingRadius: 18))
-        .padding([.horizontal, .bottom], 6)
+        .padding([.leading, .bottom], 6)
+    }
+
+    private var editor: some View {
+        let id = store.selectedID
+        return NoteEditor(text: Binding(get: { store.text(in: id) }, set: { store.updateText($0, in: id) }),
+                          focusID: state.focusID, taskID: state.taskID, onEscape: onEscape)
+            .id(id)
     }
 
     private var preview: some View {
@@ -182,5 +198,6 @@ struct NotchView: View {
                 }
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
         }
+        .id(store.selectedID)
     }
 }

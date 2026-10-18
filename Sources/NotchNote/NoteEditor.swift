@@ -67,6 +67,9 @@ struct NoteEditor: NSViewRepresentable {
         var focusID = -1
         var taskID: Int
         init(_ parent: NoteEditor) { self.parent = parent; taskID = parent.taskID }
+        func undoManager(for view: NSTextView) -> UndoManager? {
+            (view as? EditorTextView)?.editHistory
+        }
         func textDidChange(_ notification: Notification) {
             guard let editor = notification.object as? NSTextView else { return }
             parent.text = editor.string
@@ -75,6 +78,8 @@ struct NoteEditor: NSViewRepresentable {
 }
 
 final class EditorTextView: NSTextView {
+    let editHistory = UndoManager()
+    override var undoManager: UndoManager? { editHistory }
     var onEscape: (() -> Void)?
 
     override func cancelOperation(_ sender: Any?) {

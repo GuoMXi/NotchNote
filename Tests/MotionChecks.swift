@@ -59,9 +59,45 @@ import SwiftUI
         controller.toggle()
         precondition(controller.state.mode == .collapsed && controller.panel.frame.height == 10)
         print("PASS: 键盘开合即时完成，可覆盖未结束的鼠标过渡")
+
+        controller.edit(animated: false)
+        pump(0.08)
+        let firstID = controller.store.selectedID
+        let firstEditor = findEditor(in: host)!
+        firstEditor.insertText("第一栏内容", replacementRange: firstEditor.selectedRange())
+        pump(0.08)
+        precondition(controller.store.text(in: firstID) == "第一栏内容")
+        controller.addSection("第二栏")
+        pump(0.08)
+        let secondEditor = findEditor(in: host)!
+        precondition(firstEditor !== secondEditor && secondEditor.string.isEmpty)
+        secondEditor.insertText("第二栏内容", replacementRange: secondEditor.selectedRange())
+        pump(0.08)
+        precondition(secondEditor.undoManager?.canUndo == true, "当前栏目必须支持撤销输入")
+        secondEditor.undoManager?.undo()
+        let undoDeadline = Date(timeIntervalSinceNow: 1)
+        while !(secondEditor.string.isEmpty && controller.store.text.isEmpty), Date() < undoDeadline {
+            pump(0.01)
+        }
+        precondition(secondEditor.string.isEmpty && controller.store.text.isEmpty)
+        precondition(controller.store.text(in: firstID) == "第一栏内容")
+        print("PASS: 切换栏目创建独立编辑器，撤销不会影响其他栏目的文字")
+        controller.selectSection(firstID)
+        pump(0.05)
+        precondition(controller.state.showingEditor == false && controller.state.mode == .editing)
+        precondition(controller.store.text == "第一栏内容")
+        print("PASS: 点击索引签只显示对应栏目，并保持面板展开")
     }
 
     @MainActor private static func pump(_ duration: TimeInterval) {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: duration))
+    }
+
+    @MainActor private static func findEditor(in view: NSView) -> EditorTextView? {
+        if let editor = view as? EditorTextView { return editor }
+        for child in view.subviews {
+            if let editor = findEditor(in: child) { return editor }
+        }
+        return nil
     }
 }

@@ -33,6 +33,8 @@ final class NotchController: NSObject {
             onEdit: { [weak self] in self?.edit() },
             onClose: { [weak self] in self?.collapse() },
             onEscape: { [weak self] in self?.collapse(animated: false) },
+            onSelectSection: { [weak self] in self?.selectSection($0) },
+            onAddSection: { [weak self] in self?.addSection($0) },
             onExport: { [weak self] in self?.export() }))
         host.sizingOptions = []
         let container = NotchContainer(host: host)
@@ -127,8 +129,36 @@ final class NotchController: NSObject {
 
     func toggle() { state.mode == .editing ? collapse(animated: false) : edit(animated: false) }
 
+    private func finishEditing() {
+        if let editor = panel.firstResponder as? EditorTextView {
+            editor.unmarkText()
+            store.text = editor.string
+        }
+        panel.makeFirstResponder(nil)
+    }
+
+    func selectSection(_ id: UUID) {
+        finishEditing()
+        store.select(id)
+        collapseTask?.cancel()
+        if state.mode != .editing { previousApp = NSWorkspace.shared.frontmostApplication }
+        state.mode = .editing
+        state.contentMode = .editing
+        state.showingEditor = false
+        present(true, animated: false)
+        panel.makeKey()
+    }
+
+    func addSection(_ title: String) {
+        finishEditing()
+        guard let id = store.addSection(title: title) else { return }
+        selectSection(id)
+        edit(animated: false)
+    }
+
     func collapse(animated: Bool = true) {
         collapseTask?.cancel()
+        finishEditing()
         store.save()
         let wasEditing = state.mode == .editing
         panel.makeFirstResponder(nil)
@@ -149,7 +179,7 @@ final class NotchController: NSObject {
         savePanel.allowedContentTypes = [.plainText]
         savePanel.beginSheetModal(for: panel) { [weak self] response in
             guard response == .OK, let url = savePanel.url, let self else { return }
-            do { try self.store.text.write(to: url, atomically: true, encoding: .utf8) }
+            do { try self.store.exportText.write(to: url, atomically: true, encoding: .utf8) }
             catch { NSAlert(error: error).runModal() }
         }
     }

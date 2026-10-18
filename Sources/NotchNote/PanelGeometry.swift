@@ -8,7 +8,7 @@ nonisolated struct PanelGeometry {
     var compactWidth: CGFloat { max(100, notchWidth + 12) }
 
     func frame(expanded: Bool) -> CGRect {
-        let width = expanded ? min(420, screen.width - 32) : compactWidth
+        let width = expanded ? min(500, screen.width - 32) : compactWidth
         let height: CGFloat = expanded ? min(430, screen.height - safeTop - 40) : 10
         return CGRect(x: screen.midX - width / 2, y: screen.maxY - safeTop - height,
                       width: width, height: height)

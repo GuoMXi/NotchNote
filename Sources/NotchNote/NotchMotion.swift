@@ -35,7 +35,7 @@ struct NotchReveal: Shape {
 /// Only the window's hit area changes at transition boundaries; animation never reflows text.
 final class NotchContainer: NSView {
     let host: NSHostingView<NotchView>
-    var surfaceSize = CGSize(width: 420, height: 430) {
+    var surfaceSize = CGSize(width: 500, height: 430) {
         didSet { needsLayout = true }
     }
 

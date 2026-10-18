@@ -23,6 +23,47 @@ import Foundation
         precondition(reopened.pendingCount == 0 && reopened.saveError == nil)
         print("PASS: 自动保存并重新读取内容")
 
+        let legacyURL = folder.appending(path: "legacy.json")
+        let legacyText = "【近期会议】\n- [ ] 讨论进展\n\n【项目甲】\n- [x] 已处理\n- [ ] 整理材料\n\n【项目乙】\n参考资料\nhttps://example.com\n"
+        let legacyData = try JSONEncoder().encode(NoteDocument(text: legacyText))
+        try legacyData.write(to: legacyURL)
+        let migrated = NoteStore(url: legacyURL)
+        precondition(migrated.sections.map(\.title) == ["近期会议", "项目甲", "项目乙"])
+        precondition(migrated.totalPendingCount == 2 && migrated.pendingCount == 1)
+        let backups = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("legacy.v1-") }
+        precondition(backups.count == 1)
+        let backupData = try Data(contentsOf: backups[0])
+        precondition(backupData == legacyData)
+        precondition(migrated.sections[2].text.contains("https://example.com"))
+        print("PASS: 旧便笺按栏目迁移，保留勾选、链接和完整原文件备份")
+
+        let first = migrated.selectedID
+        let second = migrated.sections[1].id
+        migrated.select(second)
+        migrated.toggle(1)
+        precondition(migrated.pendingCount == 0 && migrated.text(in: first) == "- [ ] 讨论进展")
+        migrated.updateText("会议补充", in: first)
+        precondition(migrated.selectedID == second && migrated.text.hasPrefix("- [x] 已处理"))
+        let restored = NoteStore(url: legacyURL)
+        precondition(restored.selectedID == second && restored.sections == migrated.sections)
+        precondition(restored.exportText.contains("【项目乙】") && restored.exportText.contains("会议补充"))
+        precondition(restored.addSection(title: "   ") == nil)
+        precondition(restored.addSection(title: " 新项目 ") != nil)
+        precondition(restored.selectedSection.title == "新项目" && restored.text.isEmpty && restored.hasContent)
+        print("PASS: 栏目独立编辑、选择记忆、完整导出和新建栏目")
+
+        let duplicateURL = folder.appending(path: "duplicate.json")
+        let duplicate = migrated.sections[0]
+        let invalidData = try JSONEncoder().encode(NotebookDocument(sections: [duplicate, duplicate], selectedID: duplicate.id))
+        try invalidData.write(to: duplicateURL)
+        let invalidStore = NoteStore(url: duplicateURL)
+        invalidStore.save()
+        let invalidPreserved = try Data(contentsOf: duplicateURL)
+        precondition(invalidStore.saveError != nil && invalidPreserved == invalidData)
+        precondition(NotebookMigration.sections(from: "普通文本\n\n仍是同一张纸").count == 1)
+        print("PASS: 非分组旧便笺保留为随手记，异常栏目数据禁止覆盖")
+
         let original = Data("corrupted document".utf8)
         try original.write(to: url)
         let unreadable = NoteStore(url: url)
@@ -44,7 +85,7 @@ import Foundation
         let compact = geometry.frame(expanded: false)
         let expanded = geometry.frame(expanded: true)
         precondition(compact.maxY == 1150 && expanded.maxY == compact.maxY)
-        precondition(expanded.midX == -756 && compact.width == 196 && expanded.width == 420)
+        precondition(expanded.midX == -756 && compact.width == 196 && expanded.width == 500)
         let external = PanelGeometry(screen: CGRect(x: 0, y: 0, width: 1920, height: 1080), safeTop: 24, notchWidth: 0)
         precondition(external.frame(expanded: true).maxY == 1056)
         print("PASS: 刘海与无刘海屏幕定位、负坐标显示器居中")

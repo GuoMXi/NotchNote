@@ -54,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         controller?.store.save()
-        guard let store = controller?.store, store.saveError != nil, !store.text.isEmpty else { return .terminateNow }
+        guard let store = controller?.store, store.saveError != nil, store.hasContent else { return .terminateNow }
         let alert = NSAlert()
         alert.messageText = "便笺尚未成功保存"
         alert.informativeText = "请先返回便笺，使用导出按钮备份内容。"

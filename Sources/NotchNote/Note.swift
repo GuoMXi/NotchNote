@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import AppKit
 
 /// Plain text remains the source of truth, including blank lines and unfinished thoughts.
 nonisolated struct NoteLine: Identifiable, Equatable {
@@ -34,6 +35,7 @@ nonisolated struct NoteSection: Codable, Identifiable, Equatable {
     var title: String
     var text: String
     var tint: Int
+    var richText: Data? = nil
 }
 
 nonisolated struct NotebookDocument: Codable {
@@ -98,9 +100,38 @@ nonisolated enum NotebookMigration {
 
     func text(in id: UUID) -> String { sections.first(where: { $0.id == id })?.text ?? "" }
 
+    func attributedText(in id: UUID) -> NSAttributedString {
+        let section = sections.first(where: { $0.id == id }) ?? selectedSection
+        return RichText.decode(section.richText, text: section.text)
+    }
+
+    func updateRichText(_ value: NSAttributedString, in id: UUID) {
+        guard let index = sections.firstIndex(where: { $0.id == id }) else { return }
+        do {
+            let data = try RichText.encode(value)
+            guard sections[index].text != value.string || sections[index].richText != data else { return }
+            sections[index].text = value.string
+            sections[index].richText = data
+            save()
+        } catch {
+            saveError = "文字格式未能保存，请保留当前窗口并导出备份。"
+        }
+    }
+
+    var exportRichText: NSAttributedString {
+        let result = NSMutableAttributedString(string: "")
+        for section in sections {
+            if result.length > 0 { result.append(NSAttributedString(string: "\n\n")) }
+            result.append(NSAttributedString(string: "【\(section.title)】\n", attributes: [.font: NSFont.boldSystemFont(ofSize: 18)]))
+            result.append(attributedText(in: section.id))
+        }
+        return result
+    }
+
     func updateText(_ value: String, in id: UUID) {
         guard let index = sections.firstIndex(where: { $0.id == id }), sections[index].text != value else { return }
         sections[index].text = value
+        sections[index].richText = nil
         save()
     }
 
@@ -157,7 +188,18 @@ nonisolated enum NotebookMigration {
         return section.id
     }
 
-    func toggle(_ line: Int) { text = NoteLine.toggling(line, in: text) }
+    func toggle(_ line: Int) {
+        let parsed = lines
+        guard parsed.indices.contains(line), parsed[line].isTask else { return }
+        guard selectedSection.richText != nil else {
+            text = NoteLine.toggling(line, in: text)
+            return
+        }
+        let value = NSMutableAttributedString(attributedString: attributedText(in: selectedID))
+        let start = parsed.prefix(line).reduce(0) { $0 + ($1.raw as NSString).length + 1 }
+        value.replaceCharacters(in: NSRange(location: start + 3, length: 1), with: parsed[line].isDone ? " " : "x")
+        updateRichText(value, in: selectedID)
+    }
 
     func save() {
         guard canSave else { return }

@@ -17,6 +17,9 @@ final class NotchController: NSObject {
     private var keyMonitor: Any?
     private var container: NotchContainer?
     private var presentationID = 0
+    private var pointerInside = false
+    private var pointerHasEntered = false
+    private var activeInteractions: Set<String> = []
 
     init(store: NoteStore = NoteStore()) {
         self.store = store
@@ -29,15 +32,17 @@ final class NotchController: NSObject {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         let host = NSHostingView(rootView: NotchView(store: store, state: state,
-            onHover: { [weak self] in self?.hover($0) },
             onEdit: { [weak self] in self?.edit() },
             onClose: { [weak self] in self?.collapse() },
             onEscape: { [weak self] in self?.collapse(animated: false) },
             onSelectSection: { [weak self] in self?.selectSection($0) },
             onAddSection: { [weak self] in self?.addSection($0) },
+            onTogglePin: { [weak self] in self?.togglePin() },
+            onInteraction: { [weak self] in self?.interaction($0, active: $1) },
             onExport: { [weak self] in self?.export() }))
         host.sizingOptions = []
         let container = NotchContainer(host: host)
+        container.onHover = { [weak self] in self?.hover($0) }
         self.container = container
         panel.contentView = container
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged),
@@ -101,18 +106,43 @@ final class NotchController: NSObject {
     }
 
     func hover(_ inside: Bool) {
+        pointerInside = inside
+        // A native exit also confirms entry: the area may have been rebuilt under a stationary pointer.
+        if inside || state.mode != .collapsed { pointerHasEntered = true }
         collapseTask?.cancel()
         if inside && state.mode == .collapsed {
             state.mode = .preview
             state.contentMode = .preview
             present(true, animated: true)
-        } else if !inside && state.mode == .preview {
-            collapseTask = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(350))
-                guard !Task.isCancelled, let self, self.state.mode == .preview else { return }
-                self.collapse()
-            }
+        } else if !inside {
+            scheduleAutoCollapse()
         }
+    }
+
+    private func scheduleAutoCollapse() {
+        collapseTask?.cancel()
+        guard pointerHasEntered, !pointerInside, !state.isPinned, activeInteractions.isEmpty,
+              state.mode != .collapsed else { return }
+        collapseTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, let self, !self.pointerInside, !self.state.isPinned,
+                  self.activeInteractions.isEmpty, self.state.mode != .collapsed else { return }
+            if self.panel.attachedSheet != nil || (self.panel.firstResponder as? NSTextView)?.hasMarkedText() == true || NSEvent.pressedMouseButtons != 0 {
+                self.scheduleAutoCollapse()
+                return
+            }
+            self.collapse()
+        }
+    }
+
+    func interaction(_ id: String, active: Bool) {
+        if active { activeInteractions.insert(id); collapseTask?.cancel() }
+        else { activeInteractions.remove(id); scheduleAutoCollapse() }
+    }
+
+    func togglePin() {
+        state.isPinned.toggle()
+        if state.isPinned { collapseTask?.cancel() } else { scheduleAutoCollapse() }
     }
 
     func edit(animated: Bool = true) {
@@ -132,7 +162,7 @@ final class NotchController: NSObject {
     private func finishEditing() {
         if let editor = panel.firstResponder as? EditorTextView {
             editor.unmarkText()
-            store.text = editor.string
+            store.updateRichText(editor.attributedString(), in: store.selectedID)
         }
         panel.makeFirstResponder(nil)
     }
@@ -164,6 +194,9 @@ final class NotchController: NSObject {
         panel.makeFirstResponder(nil)
         panel.resignKey()
         state.mode = .collapsed
+        pointerHasEntered = false
+        state.formattingPresented = false
+        activeInteractions.removeAll()
         present(false, animated: animated)
         if wasEditing, let previousApp, previousApp.processIdentifier != ProcessInfo.processInfo.processIdentifier,
            NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
@@ -175,11 +208,17 @@ final class NotchController: NSObject {
     func export() {
         edit()
         let savePanel = NSSavePanel()
-        savePanel.nameFieldStringValue = "NotchNote.txt"
-        savePanel.allowedContentTypes = [.plainText]
+        savePanel.nameFieldStringValue = "NotchNote.rtf"
+        savePanel.allowedContentTypes = [.rtf, .plainText]
         savePanel.beginSheetModal(for: panel) { [weak self] response in
             guard response == .OK, let url = savePanel.url, let self else { return }
-            do { try self.store.exportText.write(to: url, atomically: true, encoding: .utf8) }
+            do {
+                if url.pathExtension.lowercased() == "txt" {
+                    try self.store.exportText.write(to: url, atomically: true, encoding: .utf8)
+                } else {
+                    try RichText.encode(self.store.exportRichText).write(to: url, options: .atomic)
+                }
+            }
             catch { NSAlert(error: error).runModal() }
         }
     }

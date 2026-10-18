@@ -4,6 +4,7 @@ struct ProjectBookmarks: View {
     @Bindable var store: NoteStore
     let onSelect: (UUID) -> Void
     let onAdd: (String) -> Void
+    let onInteraction: (String, Bool) -> Void
     @State private var showingNewSection = false
     @State private var newTitle = ""
     @FocusState private var nameFocused: Bool
@@ -53,6 +54,7 @@ struct ProjectBookmarks: View {
         .frame(width: 68).padding(.trailing, 6)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("项目索引签")
+        .onChange(of: showingNewSection) { _, visible in onInteraction("newSection", visible) }
     }
 
     private func bookmark(_ section: NoteSection) -> some View {

@@ -8,5 +8,6 @@ swiftc -parse-as-library -swift-version 6 -default-isolation MainActor \
   Sources/NotchNote/Note.swift Sources/NotchNote/PanelGeometry.swift \
   Sources/NotchNote/NoteEditor.swift Sources/NotchNote/NotchView.swift \
   Sources/NotchNote/NotchMotion.swift Sources/NotchNote/NotchController.swift Sources/NotchNote/ProjectBookmarks.swift \
+  Sources/NotchNote/RichText.swift Sources/NotchNote/FormattingBar.swift \
   Tests/MotionChecks.swift -o "$check_dir/checks"
 "$check_dir/checks"

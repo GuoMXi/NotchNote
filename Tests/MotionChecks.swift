@@ -65,8 +65,20 @@ import SwiftUI
         let firstID = controller.store.selectedID
         let firstEditor = findEditor(in: host)!
         firstEditor.insertText("第一栏内容", replacementRange: firstEditor.selectedRange())
+        let inputDeadline = Date(timeIntervalSinceNow: 1)
+        while controller.store.text(in: firstID) != "第一栏内容", Date() < inputDeadline { pump(0.01) }
+        precondition(controller.store.text(in: firstID) == "第一栏内容", "编辑器=\(firstEditor.string.debugDescription)，模型=\(controller.store.text(in: firstID).debugDescription)，存储=\(firstEditor.textStorage != nil)")
+        firstEditor.setSelectedRange(NSRange(location: 0, length: firstEditor.string.utf16.count))
+        firstEditor.apply(.bold)
         pump(0.08)
-        precondition(controller.store.text(in: firstID) == "第一栏内容")
+        precondition(firstEditor.selectedRange().length == firstEditor.string.utf16.count)
+        firstEditor.apply(.underline)
+        pump(0.08)
+        precondition(firstEditor.selectedRange().length == firstEditor.string.utf16.count)
+        precondition(firstEditor.currentStyle.bold && firstEditor.currentStyle.underline)
+        let styled = controller.store.attributedText(in: firstID)
+        precondition(styled.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int == 1)
+        print("PASS: 连续设置文字格式保留选区，RTF 保存不会打断编辑")
         controller.addSection("第二栏")
         pump(0.08)
         let secondEditor = findEditor(in: host)!
@@ -86,7 +98,43 @@ import SwiftUI
         pump(0.05)
         precondition(controller.state.showingEditor == false && controller.state.mode == .editing)
         precondition(controller.store.text == "第一栏内容")
-        print("PASS: 点击索引签只显示对应栏目，并保持面板展开")
+        print("PASS: 点击索引签只显示对应栏目")
+
+        controller.hover(true)
+        controller.hover(false)
+        pump(0.8)
+        precondition(controller.state.mode == .collapsed && controller.panel.frame.height == 10)
+        print("PASS: 切换项目后移开鼠标也能自动收起")
+
+        controller.hover(true)
+        controller.edit(animated: false)
+        controller.hover(false)
+        pump(0.8)
+        precondition(controller.state.mode == .collapsed)
+        print("PASS: 编辑状态移开鼠标自动收起，并保存输入")
+
+        controller.hover(true)
+        controller.togglePin()
+        controller.hover(false)
+        pump(0.5)
+        precondition(controller.state.mode != .collapsed)
+        controller.togglePin()
+        pump(0.8)
+        precondition(controller.state.mode == .collapsed)
+        print("PASS: 固定阻止自动收起，取消固定恢复自动收起")
+
+        controller.hover(true)
+        controller.interaction("format", active: true)
+        controller.hover(false)
+        pump(0.5)
+        precondition(controller.state.mode != .collapsed)
+        controller.interaction("format", active: false)
+        pump(0.8)
+        precondition(controller.state.mode == .collapsed)
+        controller.edit(animated: false)
+        pump(0.5)
+        precondition(controller.state.mode == .editing)
+        print("PASS: 格式弹窗保护操作，键盘唤出无需先将鼠标移入")
     }
 
     @MainActor private static func pump(_ duration: TimeInterval) {

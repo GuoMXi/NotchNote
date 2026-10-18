@@ -35,6 +35,8 @@ struct NotchReveal: Shape {
 /// Only the window's hit area changes at transition boundaries; animation never reflows text.
 final class NotchContainer: NSView {
     let host: NSHostingView<NotchView>
+    var onHover: ((Bool) -> Void)?
+    private var hoverTracking: NSTrackingArea?
     var surfaceSize = CGSize(width: 500, height: 430) {
         didSet { needsLayout = true }
     }
@@ -47,6 +49,22 @@ final class NotchContainer: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        var options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .enabledDuringMouseDrag]
+        if let window {
+            let point = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+            if visibleRect.contains(point) { options.insert(.assumeInside) }
+        }
+        let tracking = NSTrackingArea(rect: .zero, options: options, owner: self)
+        addTrackingArea(tracking)
+        hoverTracking = tracking
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
 
     override func layout() {
         super.layout()

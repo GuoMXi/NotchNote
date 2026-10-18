@@ -13,18 +13,24 @@ enum PanelMode { case collapsed, preview, editing }
     var taskID = 0
     var showingEditor = true
     var shortcutAvailable = true
+    var isPinned = false
+    var formattingPresented = false
+    var formatID = 0
+    var formatCommand = EditorCommand.bold
+    var editorStyle = EditorStyle()
 }
 
 struct NotchView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var store: NoteStore
     @Bindable var state: PanelState
-    let onHover: (Bool) -> Void
     let onEdit: () -> Void
     let onClose: () -> Void
     let onEscape: () -> Void
     let onSelectSection: (UUID) -> Void
     let onAddSection: (String) -> Void
+    let onTogglePin: () -> Void
+    let onInteraction: (String, Bool) -> Void
     let onExport: () -> Void
 
     private let paper = Color(red: 0.98, green: 0.97, blue: 0.92)
@@ -56,7 +62,6 @@ struct NotchView: View {
             .accessibilityHidden(state.revealed)
         }
         .frame(width: state.surfaceSize.width, height: state.surfaceSize.height, alignment: .top)
-        .onHover(perform: onHover)
         .environment(\.colorScheme, .light)
     }
 
@@ -66,8 +71,13 @@ struct NotchView: View {
                 Image(systemName: "note.text").foregroundStyle(.yellow.opacity(0.85))
                 Text("NotchNote").font(.system(size: 12, weight: .medium))
                 Spacer()
-                Text(state.contentMode == .editing ? "安心写，已保持展开" : "随手记，慢慢做")
+                Text(state.isPinned ? "已固定" : "移开后自动收起")
                     .font(.system(size: 10)).foregroundStyle(.white.opacity(0.6))
+                Button(action: onTogglePin) {
+                    Image(systemName: state.isPinned ? "pin.fill" : "pin").frame(width: 24, height: 24)
+                        .foregroundStyle(state.isPinned ? .yellow : .white)
+                }.help(state.isPinned ? "取消固定，恢复自动收起" : "固定便笺，移开鼠标也保留")
+                    .accessibilityLabel(state.isPinned ? "取消固定便笺" : "固定便笺")
                 Button(action: onClose) { Image(systemName: "chevron.up").frame(width: 24, height: 24) }
                     .help("收起 · Esc").accessibilityLabel("收起便笺")
             }
@@ -86,7 +96,7 @@ struct NotchView: View {
     private var paperContents: some View {
         HStack(spacing: 0) {
             notePaper
-            ProjectBookmarks(store: store, onSelect: onSelectSection, onAdd: onAddSection)
+            ProjectBookmarks(store: store, onSelect: onSelectSection, onAdd: onAddSection, onInteraction: onInteraction)
         }
     }
 
@@ -104,6 +114,10 @@ struct NotchView: View {
             }.padding(.bottom, 12)
 
             if state.contentMode == .editing && state.showingEditor {
+                FormattingBar(state: state, onCommand: { command in
+                    state.formatCommand = command
+                    state.formatID += 1
+                }, onInteraction: onInteraction)
                 ZStack(alignment: .topLeading) {
                     if store.text.isEmpty {
                         Text("写下此刻想到的事…\n\n不必整理好，先记下来。")
@@ -136,7 +150,7 @@ struct NotchView: View {
                 }
                 Spacer(minLength: 0)
                 Button(action: onExport) { Image(systemName: "square.and.arrow.up") }
-                    .help("导出全部栏目为纯文本备份").accessibilityLabel("导出全部栏目")
+                    .help("导出全部栏目，可保留文字格式").accessibilityLabel("导出全部栏目")
                 Text(store.saveError == nil ? (store.savedAt == nil ? "本机保存" : "已保存") : "保存异常")
                     .foregroundStyle(store.saveError == nil ? ink.opacity(0.45) : .red)
             }
@@ -156,8 +170,13 @@ struct NotchView: View {
 
     private var editor: some View {
         let id = store.selectedID
-        return NoteEditor(text: Binding(get: { store.text(in: id) }, set: { store.updateText($0, in: id) }),
-                          focusID: state.focusID, taskID: state.taskID, onEscape: onEscape)
+        return NoteEditor(content: store.attributedText(in: id), focusID: state.focusID, taskID: state.taskID,
+                          formatID: state.formatID, command: state.formatCommand,
+                          onChange: { value in
+                              store.updateRichText(value, in: id)
+                              return store.attributedText(in: id)
+                          },
+                          onStyleChange: { if state.editorStyle != $0 { state.editorStyle = $0 } }, onEscape: onEscape)
             .id(id)
     }
 
@@ -175,7 +194,8 @@ struct NotchView: View {
                             .foregroundStyle(ink).padding(.top, 8)
                     }.padding(.top, 20)
                 } else {
-                    ForEach(store.lines) { line in
+                    ForEach(RichText.lines(store.attributedText(in: store.selectedID))) { rendered in
+                        let line = rendered.line
                         HStack(alignment: .top, spacing: 10) {
                             if line.isTask {
                                 Button {
@@ -188,9 +208,9 @@ struct NotchView: View {
                                 .buttonStyle(.plain)
                                 .accessibilityLabel(line.isDone ? "标记未完成：\(line.text)" : "完成：\(line.text)")
                             }
-                            Text(line.text.isEmpty ? " " : line.text)
+                            Text(line.text.isEmpty ? AttributedString(" ") : rendered.text)
                                 .font(.system(size: 15)).lineSpacing(4)
-                                .strikethrough(line.isDone).foregroundStyle(ink.opacity(line.isDone ? 0.35 : 1))
+                                .strikethrough(line.isDone).opacity(line.isDone ? 0.4 : 1)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle()).onTapGesture(perform: onEdit)
                         }

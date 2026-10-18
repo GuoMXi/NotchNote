@@ -10,6 +10,7 @@ enum PanelMode { case collapsed, preview, editing }
     var surfaceSize = CGSize(width: 500, height: 430)
     var compactWidth: CGFloat = 100
     var focusID = 0
+    var focusLine: Int? = nil
     var taskID = 0
     var showingEditor = true
     var shortcutAvailable = true
@@ -28,6 +29,7 @@ struct NotchView: View {
     let onClose: () -> Void
     let onEscape: () -> Void
     let onSelectSection: (UUID) -> Void
+    let onOpenMeeting: (MeetingReference) -> Void
     let onAddSection: (String) -> Void
     let onTogglePin: () -> Void
     let onInteraction: (String, Bool) -> Void
@@ -114,6 +116,10 @@ struct NotchView: View {
             }.padding(.bottom, 12)
 
             if state.contentMode == .editing && state.showingEditor {
+                if store.isMeetingOverview {
+                    Text("这里编辑直接记录的会议，项目中的会议会在汇总中自动显示。")
+                        .font(.system(size: 10)).foregroundStyle(.secondary).padding(.bottom, 6)
+                }
                 FormattingBar(state: state, onCommand: { command in
                     state.formatCommand = command
                     state.formatID += 1
@@ -127,6 +133,8 @@ struct NotchView: View {
                     }
                     editor
                 }
+            } else if store.isMeetingOverview {
+                MeetingOverview(store: store, onWrite: onEdit, onOpenMeeting: onOpenMeeting)
             } else {
                 preview
             }
@@ -138,7 +146,7 @@ struct NotchView: View {
                         state.showingEditor.toggle()
                         state.focusID += 1
                     } label: {
-                        Label(state.showingEditor ? "勾选待办" : "继续写",
+                        Label(state.showingEditor ? (store.isMeetingOverview ? "查看汇总" : "勾选待办") : "继续写",
                               systemImage: state.showingEditor ? "checklist" : "pencil")
                     }.help("切换编辑和可勾选的预览")
                     if state.showingEditor {
@@ -146,7 +154,7 @@ struct NotchView: View {
                             .help("将当前行转为待办 · ⌘⇧L").accessibilityLabel("切换当前行为待办")
                     }
                 } else {
-                    Button(action: onEdit) { Label("点击开始写", systemImage: "pencil") }
+                    Button(action: onEdit) { Label(store.isMeetingOverview ? "直接写会议" : "点击开始写", systemImage: "pencil") }
                 }
                 Spacer(minLength: 0)
                 Button(action: onExport) { Image(systemName: "square.and.arrow.up") }
@@ -170,7 +178,7 @@ struct NotchView: View {
 
     private var editor: some View {
         let id = store.selectedID
-        return NoteEditor(content: store.attributedText(in: id), focusID: state.focusID, taskID: state.taskID,
+        return NoteEditor(content: store.attributedText(in: id), focusID: state.focusID, focusLine: state.focusLine, taskID: state.taskID,
                           formatID: state.formatID, command: state.formatCommand,
                           onChange: { value in
                               store.updateRichText(value, in: id)
@@ -195,25 +203,7 @@ struct NotchView: View {
                     }.padding(.top, 20)
                 } else {
                     ForEach(RichText.lines(store.attributedText(in: store.selectedID))) { rendered in
-                        let line = rendered.line
-                        HStack(alignment: .top, spacing: 10) {
-                            if line.isTask {
-                                Button {
-                                    store.toggle(line.id)
-                                } label: {
-                                    Image(systemName: line.isDone ? "checkmark.circle.fill" : "circle")
-                                        .font(.system(size: 17)).foregroundStyle(line.isDone ? ink.opacity(0.35) : ink.opacity(0.65))
-                                        .frame(width: 24, height: 23)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(line.isDone ? "标记未完成：\(line.text)" : "完成：\(line.text)")
-                            }
-                            Text(line.text.isEmpty ? AttributedString(" ") : rendered.text)
-                                .font(.system(size: 15)).lineSpacing(4)
-                                .strikethrough(line.isDone).opacity(line.isDone ? 0.4 : 1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle()).onTapGesture(perform: onEdit)
-                        }
+                        NoteLineRow(rendered: rendered, onToggle: { store.toggle(rendered.id) }, onEdit: onEdit)
                     }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)

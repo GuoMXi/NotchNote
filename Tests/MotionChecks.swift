@@ -3,6 +3,7 @@ import SwiftUI
 
 @main struct MotionChecks {
     @MainActor static func main() throws {
+        setbuf(__stdoutp, nil)
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -135,6 +136,26 @@ import SwiftUI
         pump(0.5)
         precondition(controller.state.mode == .editing)
         print("PASS: 格式弹窗保护操作，键盘唤出无需先将鼠标移入")
+
+        let sourceEditor = findEditor(in: host)!
+        sourceEditor.insertText("前言🙂\n- [ ] #会议 讨论议程",
+                                replacementRange: NSRange(location: 0, length: sourceEditor.string.utf16.count))
+        pump(0.08)
+        controller.selectSection(controller.store.meetingsSectionID)
+        pump(0.08)
+        precondition(controller.store.isMeetingOverview && !controller.state.showingEditor)
+        let meeting = controller.store.projectMeetings[0]
+        controller.openMeeting(meeting.reference)
+        pump(0.15)
+        precondition(controller.store.selectedID == firstID && controller.state.showingEditor)
+        let meetingEditor = findEditor(in: host)!
+        precondition((meetingEditor.string as NSString).substring(with: meetingEditor.selectedRange()) == "- [ ] #会议 讨论议程")
+        meetingEditor.apply(.meeting)
+        pump(0.1)
+        precondition(controller.store.projectMeetings.isEmpty)
+        precondition(controller.store.text == "前言🙂\n- [ ] 讨论议程")
+        print("PASS: 会议汇总跳回来源精确选中原行，编辑器取消标记自动保存并移出汇总")
+
     }
 
     @MainActor private static func pump(_ duration: TimeInterval) {

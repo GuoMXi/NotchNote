@@ -20,8 +20,16 @@ struct FormattingBar: View {
             styleButton("bold", name: "加粗", shortcut: "⌘B", active: state.editorStyle.bold, command: .bold)
             styleButton("italic", name: "斜体", shortcut: "⌘I", active: state.editorStyle.italic, command: .italic)
             styleButton("underline", name: "下划线", shortcut: "⌘U", active: state.editorStyle.underline, command: .underline)
+            Button { onCommand(.meeting) } label: {
+                Label("会议", systemImage: "calendar").font(.system(size: 11, weight: .medium))
+                    .padding(.horizontal, 5).frame(height: 26)
+                    .background(state.editorStyle.meeting ? Color.orange.opacity(0.2) : Color.black.opacity(0.04),
+                                in: RoundedRectangle(cornerRadius: 5))
+            }.help("标记或取消当前行为会议 · ⌘⇧M")
+                .accessibilityLabel("切换当前行为会议")
+                .accessibilityValue(state.editorStyle.meeting ? "已标记" : "未标记")
             Spacer(minLength: 0)
-            Text("选中文字调整格式").font(.system(size: 10)).foregroundStyle(.secondary)
+            Text("选中文字调整格式").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
         }
         .buttonStyle(.plain)
         .padding(.bottom, 6)

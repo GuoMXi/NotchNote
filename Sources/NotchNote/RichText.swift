@@ -27,11 +27,11 @@ enum RichText {
         var offset = 0
         return NoteLine.parse(value.string).map { line in
             let length = (line.raw as NSString).length
-            let prefix = line.isTask ? 6 : 0
+            let prefix = line.displayPrefixLength
             let range = NSRange(location: offset + prefix, length: length - prefix)
             offset += length + 1
             let content = value.attributedSubstring(from: range)
-            return Line(line: line, text: (try? AttributedString(content, including: \.appKit)) ?? AttributedString(line.text))
+            return Line(line: line, text: (try? AttributedString(content, including: \.appKit)) ?? AttributedString(line.displayText))
         }
     }
 
@@ -43,7 +43,7 @@ enum RichText {
 }
 
 enum EditorCommand: Equatable {
-    case bold, italic, underline
+    case bold, italic, underline, meeting
     case font(String), size(Double), color(String)
 }
 
@@ -53,4 +53,5 @@ struct EditorStyle: Equatable {
     var bold = false
     var italic = false
     var underline = false
+    var meeting = false
 }

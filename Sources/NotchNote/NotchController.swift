@@ -36,6 +36,7 @@ final class NotchController: NSObject {
             onClose: { [weak self] in self?.collapse() },
             onEscape: { [weak self] in self?.collapse(animated: false) },
             onSelectSection: { [weak self] in self?.selectSection($0) },
+            onOpenMeeting: { [weak self] in self?.openMeeting($0) },
             onAddSection: { [weak self] in self?.addSection($0) },
             onTogglePin: { [weak self] in self?.togglePin() },
             onInteraction: { [weak self] in self?.interaction($0, active: $1) },
@@ -151,6 +152,7 @@ final class NotchController: NSObject {
         state.mode = .editing
         state.contentMode = .editing
         state.showingEditor = true
+        state.focusLine = nil
         present(true, animated: animated)
         panel.orderFrontRegardless()
         panel.makeKey()
@@ -184,6 +186,14 @@ final class NotchController: NSObject {
         guard let id = store.addSection(title: title) else { return }
         selectSection(id)
         edit(animated: false)
+    }
+
+    func openMeeting(_ reference: MeetingReference) {
+        finishEditing()
+        guard let line = store.resolve(reference) else { return }
+        store.select(reference.sectionID)
+        edit(animated: false)
+        state.focusLine = line.id
     }
 
     func collapse(animated: Bool = true) {

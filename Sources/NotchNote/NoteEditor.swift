@@ -4,6 +4,7 @@ import SwiftUI
 struct NoteEditor: NSViewRepresentable {
     let content: NSAttributedString
     let focusID: Int
+    let focusLine: Int?
     let taskID: Int
     let formatID: Int
     let command: EditorCommand
@@ -71,9 +72,11 @@ struct NoteEditor: NSViewRepresentable {
         }
         if context.coordinator.focusID != focusID {
             context.coordinator.focusID = focusID
+            let focusLine = focusLine
             DispatchQueue.main.async { [weak editor] in
                 guard let editor, editor.window?.isKeyWindow == true else { return }
                 editor.window?.makeFirstResponder(editor)
+                if let focusLine { editor.selectLine(focusLine) }
             }
         }
     }
@@ -151,16 +154,20 @@ final class EditorTextView: NSTextView {
         let font = attributes[.font] as? NSFont ?? .systemFont(ofSize: 15)
         let family = font.familyName ?? ""
         let traits = NSFontManager.shared.traits(of: font)
+        let source = string as NSString
+        let lineRange = source.lineRange(for: NSRange(location: min(range.location, source.length), length: 0))
+        let line = NoteLine(id: 0, raw: source.substring(with: lineRange).trimmingCharacters(in: .newlines))
         return EditorStyle(fontFamily: NSFontManager.shared.availableFontFamilies.contains(family) ? family : "",
                            size: font.pointSize, bold: traits.contains(.boldFontMask),
                            italic: traits.contains(.italicFontMask),
-                           underline: (attributes[.underlineStyle] as? Int ?? 0) != 0)
+                           underline: (attributes[.underlineStyle] as? Int ?? 0) != 0, meeting: line.isMeeting)
     }
 
     func reportStyle() { onStyleChanged?(currentStyle) }
 
     func apply(_ command: EditorCommand) {
         guard !hasMarkedText() else { return }
+        if command == .meeting { toggleMeetingMark(); return }
         breakUndoCoalescing()
         let selection = selectedRange()
         let style = currentStyle
@@ -186,6 +193,7 @@ final class EditorTextView: NSTextView {
                 }
             case .size(let size): attributes[.font] = manager.convert(font, toSize: min(72, max(8, size)))
             case .color(let hex): attributes[.foregroundColor] = RichText.color(hex)
+            case .meeting: break
             }
             return attributes
         }
@@ -222,6 +230,10 @@ final class EditorTextView: NSTextView {
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains([.command, .shift]), event.charactersIgnoringModifiers?.lowercased() == "m" {
+            toggleMeetingMark()
+            return
+        }
         if flags.contains(.command), !flags.contains(.option) {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "b": apply(.bold); return
@@ -251,5 +263,30 @@ final class EditorTextView: NSTextView {
         textStorage?.replaceCharacters(in: changeRange, with: replacement)
         didChangeText()
         setSelectedRange(NSRange(location: min(max(range.location, cursor + (isTask ? -6 : 6)), (string as NSString).length), length: 0))
+    }
+
+    func selectLine(_ index: Int) {
+        let lines = NoteLine.parse(string)
+        guard lines.indices.contains(index) else { return }
+        let location = lines.prefix(index).reduce(0) { $0 + ($1.raw as NSString).length + 1 }
+        let range = NSRange(location: location, length: (lines[index].raw as NSString).length)
+        setSelectedRange(range)
+        scrollRangeToVisible(range)
+        reportStyle()
+    }
+
+    func toggleMeetingMark() {
+        guard !hasMarkedText() else { return }
+        let source = string as NSString
+        let selection = selectedRange()
+        let range = source.lineRange(for: NSRange(location: min(selection.location, source.length), length: 0))
+        let line = NoteLine(id: 0, raw: source.substring(with: range).trimmingCharacters(in: .newlines))
+        let edit = MeetingMarkerEdit.toggle(line: line, location: range.location)
+        guard shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return }
+        textStorage?.replaceCharacters(in: edit.range, with: edit.replacement)
+        didChangeText()
+        let delta = (edit.replacement as NSString).length - edit.range.length
+        setSelectedRange(NSRange(location: min((string as NSString).length, max(range.location, selection.location + delta)), length: 0))
+        reportStyle()
     }
 }

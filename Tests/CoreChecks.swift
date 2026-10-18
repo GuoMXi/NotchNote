@@ -151,5 +151,72 @@ import Foundation
         editor.editHistory.undo()
         precondition(editor.currentStyle.underline)
         print("PASS: 原生字体与字号调整、行转待办保留格式，以及格式撤销")
+
+        let meetingURL = folder.appending(path: "meetings.json")
+        let meetings = NoteStore(url: meetingURL)
+        let hubID = meetings.meetingsSectionID
+        meetings.updateText("- [ ] 直接写的会议", in: hubID)
+        let projectID = meetings.selectedID
+        meetings.text = "普通会议不自动归类\n- [ ] #会议 讨论🙂\n#会议 评审\n- [x] #会议 已开完\n#会议 "
+        precondition(meetings.projectMeetings.count == 3)
+        precondition(meetings.totalPendingCount == 3)
+        meetings.select(hubID)
+        precondition(meetings.pendingCount == 3)
+        let reference = meetings.projectMeetings[0].reference
+        meetings.toggleMeeting(reference)
+        precondition(meetings.selectedID == hubID && meetings.text == "- [ ] 直接写的会议")
+        precondition(meetings.text(in: projectID).contains("- [x] #会议 讨论🙂"))
+        precondition(meetings.pendingCount == 2 && meetings.totalPendingCount == 2)
+        meetings.toggleMeeting(meetings.projectMeetings[0].reference)
+        precondition(meetings.text(in: projectID).contains("- [x] #会议 评审"))
+        precondition(meetings.pendingCount == 1)
+        let meetingReopened = NoteStore(url: meetingURL)
+        precondition(meetingReopened.meetingsSectionID == hubID && meetingReopened.projectMeetings.count == 3)
+        print("PASS: 显式会议标记自动汇总、完成同步来源、直接记录保留、计数不重复及重启保存")
+
+        meetings.updateText("前言\n- [ ] #会议 讨论🙂", in: projectID)
+        precondition(meetings.resolve(reference)?.id == 1)
+        meetings.updateText("新增一行\n前言\n- [ ] #会议 讨论🙂", in: projectID)
+        precondition(meetings.resolve(reference)?.id == 2)
+        meetings.toggleMeeting(reference)
+        precondition(meetings.text(in: projectID).hasSuffix("- [x] #会议 讨论🙂"))
+        let finished = meetings.projectMeetings[0].reference
+        meetings.toggleMeetingMark(2, in: projectID)
+        precondition(meetings.projectMeetings.isEmpty && meetings.resolve(finished) == nil)
+        meetings.updateText("前言\n其他内容\n- [ ] #会议 讨论🙂\n- [ ] #会议 讨论🙂", in: projectID)
+        let beforeStale = meetings.text(in: projectID)
+        meetings.toggleMeeting(reference)
+        precondition(meetings.text(in: projectID) == beforeStale)
+        print("PASS: 项目增删与取消标记即时更新，过期引用不会误改其他行")
+
+        let meetingRich = NSMutableAttributedString(string: "前言\n- [ ] #会议 讨论🙂", attributes: RichText.defaults)
+        let meetingWord = (meetingRich.string as NSString).range(of: "讨论🙂")
+        meetingRich.addAttribute(.underlineStyle, value: 1, range: meetingWord)
+        meetings.updateRichText(meetingRich, in: projectID)
+        meetings.toggleMeeting(meetings.projectMeetings[0].reference)
+        precondition(meetings.attributedText(in: projectID).attribute(.underlineStyle, at: meetingWord.location, effectiveRange: nil) as? Int == 1)
+        precondition(String(meetings.projectMeetings[0].rendered.text.characters) == "讨论🙂")
+        meetings.toggleMeetingMark(1, in: projectID)
+        meetings.toggleMeetingMark(1, in: projectID)
+        let preservedWord = (meetings.text(in: projectID) as NSString).range(of: "讨论🙂")
+        precondition(meetings.attributedText(in: projectID).attribute(.underlineStyle, at: preservedWord.location, effectiveRange: nil) as? Int == 1)
+        print("PASS: 会议预览隐藏标记，标记与完成操作保留原行富文本格式")
+
+        let meetingEditor = EditorTextView()
+        meetingEditor.allowsUndo = true
+        meetingEditor.isRichText = true
+        meetingEditor.textStorage?.setAttributedString(meetingRich)
+        meetingEditor.setSelectedRange(meetingWord)
+        meetingEditor.toggleMeetingMark()
+        precondition(meetingEditor.string == "前言\n- [ ] 讨论🙂" && !meetingEditor.currentStyle.meeting)
+        meetingEditor.editHistory.undo()
+        precondition(meetingEditor.string == meetingRich.string)
+        meetingEditor.setSelectedRange(meetingWord)
+        precondition(meetingEditor.currentStyle.meeting)
+        precondition(meetingEditor.textStorage?.attribute(.underlineStyle, at: meetingWord.location, effectiveRange: nil) as? Int == 1)
+        meetingEditor.selectLine(1)
+        precondition((meetingEditor.string as NSString).substring(with: meetingEditor.selectedRange()) == "- [ ] #会议 讨论🙂")
+        print("PASS: 原生会议按钮支持撤销、格式保留及精确定位中文会议行")
+
     }
 }

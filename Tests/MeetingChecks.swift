@@ -3,6 +3,21 @@ import UserNotifications
 
 @main struct MeetingChecks {
     @MainActor static func main() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        calendar.firstWeekday = 1
+        let leapMonth = calendar.date(from: DateComponents(year: 2028, month: 2, day: 15, hour: 19, minute: 30))!
+        let days = MeetingCalendarMath.days(in: leapMonth, calendar: calendar)
+        precondition(days.count % 7 == 0 && days.count <= 42)
+        precondition(calendar.component(.weekday, from: days[0]) == 1)
+        precondition(days.filter { calendar.component(.month, from: $0) == 2 }.count == 29)
+        let march = calendar.date(from: DateComponents(year: 2027, month: 3, day: 14))!
+        let chosen = MeetingCalendarMath.selecting(march, keepingTimeOf: leapMonth, calendar: calendar)
+        let chosenParts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: chosen)
+        precondition(chosenParts.year == 2027 && chosenParts.month == 3 && chosenParts.day == 14)
+        precondition(chosenParts.hour == 19 && chosenParts.minute == 30)
+        print("PASS: 无边框日历覆盖闰月、整周网格及夏令时切日保留会议时间")
+
         let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         let url = folder.appending(path: "note.json")

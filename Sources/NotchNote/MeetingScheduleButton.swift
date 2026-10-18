@@ -42,10 +42,8 @@ struct MeetingScheduleButton: View {
                 Text(NoteLine(id: 0, raw: reference.expectedRaw).displayText)
                     .font(.system(size: 11)).lineLimit(2).foregroundStyle(.secondary)
             }
-            DatePicker("日期", selection: $date, displayedComponents: .date)
-                .datePickerStyle(.graphical)
-                .labelsHidden()
-                .frame(maxWidth: .infinity, alignment: .center)
+            MeetingCalendar(selection: $date)
+                .frame(maxWidth: .infinity)
             VStack(spacing: 8) {
                 HStack {
                     Text("时间").font(.system(size: 12)).foregroundStyle(.secondary)

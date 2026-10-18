@@ -1,0 +1,117 @@
+import AppKit
+import SwiftUI
+
+final class NotchPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
+final class NotchController: NSObject {
+    let store = NoteStore()
+    let state = PanelState()
+    private let panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                                   backing: .buffered, defer: false)
+    private var collapseTask: Task<Void, Never>?
+    private var previousApp: NSRunningApplication?
+    private var geometry: PanelGeometry?
+    private var keyMonitor: Any?
+
+    override init() {
+        super.init()
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.level = .statusBar
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        let host = NSHostingView(rootView: NotchView(store: store, state: state,
+            onHover: { [weak self] in self?.hover($0) },
+            onEdit: { [weak self] in self?.edit() },
+            onClose: { [weak self] in self?.collapse() },
+            onExport: { [weak self] in self?.export() }))
+        host.sizingOptions = []
+        panel.contentView = host
+        NotificationCenter.default.addObserver(self, selector: #selector(screenChanged),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.window === self.panel, event.keyCode == 53,
+                  (self.panel.firstResponder as? NSTextView)?.hasMarkedText() != true else { return event }
+            self.collapse()
+            return nil
+        }
+        screenChanged()
+        panel.orderFrontRegardless()
+    }
+
+    @objc private func screenChanged() {
+        guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.screens.first else {
+            panel.orderOut(nil)
+            return
+        }
+        geometry = PanelGeometry(screen: screen)
+        layout()
+        panel.orderFrontRegardless()
+    }
+
+    private func layout() {
+        guard let geometry else { return }
+        // Anchor the top edge below the physical camera so no controls are obscured.
+        panel.setFrame(geometry.frame(expanded: state.mode != .collapsed), display: true)
+        panel.hasShadow = state.mode != .collapsed
+    }
+
+    func hover(_ inside: Bool) {
+        collapseTask?.cancel()
+        if inside && state.mode == .collapsed {
+            state.mode = .preview
+            layout()
+        } else if !inside && state.mode == .preview {
+            collapseTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled, let self, self.state.mode == .preview else { return }
+                self.collapse()
+            }
+        }
+    }
+
+    func edit() {
+        collapseTask?.cancel()
+        if state.mode != .editing { previousApp = NSWorkspace.shared.frontmostApplication }
+        state.mode = .editing
+        state.showingEditor = true
+        layout()
+        panel.orderFrontRegardless()
+        panel.makeKey()
+        state.focusID += 1
+    }
+
+    func toggle() { state.mode == .editing ? collapse() : edit() }
+
+    func collapse() {
+        collapseTask?.cancel()
+        store.save()
+        let wasEditing = state.mode == .editing
+        panel.makeFirstResponder(nil)
+        panel.resignKey()
+        state.mode = .collapsed
+        layout()
+        if wasEditing, let previousApp, previousApp.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+           NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+            previousApp.activate()
+        }
+        previousApp = nil
+    }
+
+    func export() {
+        edit()
+        let savePanel = NSSavePanel()
+        savePanel.nameFieldStringValue = "NotchNote.txt"
+        savePanel.allowedContentTypes = [.plainText]
+        savePanel.beginSheetModal(for: panel) { [weak self] response in
+            guard response == .OK, let url = savePanel.url, let self else { return }
+            do { try self.store.text.write(to: url, atomically: true, encoding: .utf8) }
+            catch { NSAlert(error: error).runModal() }
+        }
+    }
+}

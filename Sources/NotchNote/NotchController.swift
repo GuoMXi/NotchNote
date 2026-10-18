@@ -9,7 +9,8 @@ final class NotchPanel: NSPanel {
 final class NotchController: NSObject {
     let store: NoteStore
     let state = PanelState()
-    let panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+    // Hover only orders the panel front; editing uses normal app/window activation.
+    let panel = NotchPanel(contentRect: .zero, styleMask: [.borderless],
                                    backing: .buffered, defer: false)
     private var collapseTask: Task<Void, Never>?
     private var previousApp: NSRunningApplication?
@@ -30,9 +31,11 @@ final class NotchController: NSObject {
         panel.level = .statusBar
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
+        panel.becomesKeyOnlyIfNeeded = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         let host = NSHostingView(rootView: NotchView(store: store, state: state,
             onEdit: { [weak self] in self?.edit() },
+            onToggleEditor: { [weak self] in self?.toggleEditor() },
             onClose: { [weak self] in self?.collapse() },
             onEscape: { [weak self] in self?.collapse(animated: false) },
             onSelectSection: { [weak self] in self?.selectSection($0) },
@@ -48,6 +51,8 @@ final class NotchController: NSObject {
         panel.contentView = container
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(applicationActivated),
+            name: NSApplication.didBecomeActiveNotification, object: NSApp)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.panel, event.keyCode == 53,
                   (self.panel.firstResponder as? NSTextView)?.hasMarkedText() != true else { return event }
@@ -56,6 +61,11 @@ final class NotchController: NSObject {
         }
         screenChanged()
         panel.orderFrontRegardless()
+    }
+
+    @objc private func applicationActivated() {
+        guard state.mode == .editing, state.showingEditor else { return }
+        panel.makeKeyAndOrderFront(nil)
     }
 
     @objc private func screenChanged() {
@@ -154,12 +164,22 @@ final class NotchController: NSObject {
         state.showingEditor = true
         state.focusLine = nil
         present(true, animated: animated)
+        NSApp.activate()
         panel.orderFrontRegardless()
-        panel.makeKey()
+        panel.makeKeyAndOrderFront(nil)
         state.focusID += 1
     }
 
     func toggle() { state.mode == .editing ? collapse(animated: false) : edit(animated: false) }
+
+    func toggleEditor() {
+        if state.showingEditor {
+            finishEditing()
+            state.showingEditor = false
+        } else {
+            edit(animated: false)
+        }
+    }
 
     private func finishEditing() {
         if let editor = panel.firstResponder as? EditorTextView {
@@ -178,7 +198,7 @@ final class NotchController: NSObject {
         state.contentMode = .editing
         state.showingEditor = false
         present(true, animated: false)
-        panel.makeKey()
+        panel.makeKeyAndOrderFront(nil)
     }
 
     func addSection(_ title: String) {
@@ -202,12 +222,15 @@ final class NotchController: NSObject {
         store.save()
         let wasEditing = state.mode == .editing
         panel.makeFirstResponder(nil)
-        panel.resignKey()
+        // Ordering out clears AppKit's key-window ownership; resignKey() alone only sends
+        // the resignation callback and can leave the next activation with stale ownership.
+        panel.orderOut(nil)
         state.mode = .collapsed
         pointerHasEntered = false
         state.formattingPresented = false
         activeInteractions.removeAll()
         present(false, animated: animated)
+        panel.orderFrontRegardless()
         if wasEditing, let previousApp, previousApp.processIdentifier != ProcessInfo.processInfo.processIdentifier,
            NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
             previousApp.activate()

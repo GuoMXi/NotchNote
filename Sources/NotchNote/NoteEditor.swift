@@ -74,9 +74,7 @@ struct NoteEditor: NSViewRepresentable {
             context.coordinator.focusID = focusID
             let focusLine = focusLine
             DispatchQueue.main.async { [weak editor] in
-                guard let editor, editor.window?.isKeyWindow == true else { return }
-                editor.window?.makeFirstResponder(editor)
-                if let focusLine { editor.selectLine(focusLine) }
+                editor?.requestFocus(line: focusLine)
             }
         }
     }
@@ -114,6 +112,8 @@ final class EditorTextView: NSTextView {
     var onEscape: (() -> Void)?
     var onStyleChanged: ((EditorStyle) -> Void)?
     private var ownedTextStorage: NSTextStorage?
+    private var focusRequested = false
+    private var requestedLine: Int?
 
     convenience init() {
         let storage = NSTextStorage()
@@ -136,8 +136,33 @@ final class EditorTextView: NSTextView {
     }
 
     private func observeHistory() {
+        NotificationCenter.default.addObserver(self, selector: #selector(windowBecameKey), name: NSWindow.didBecomeKeyNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(historyChanged), name: .NSUndoManagerDidUndoChange, object: editHistory)
         NotificationCenter.default.addObserver(self, selector: #selector(historyChanged), name: .NSUndoManagerDidRedoChange, object: editHistory)
+    }
+
+    func requestFocus(line: Int?) {
+        focusRequested = true
+        requestedLine = line
+        fulfillFocusRequest()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        fulfillFocusRequest()
+    }
+
+    @objc private func windowBecameKey(_ notification: Notification) {
+        guard let changedWindow = notification.object as? NSWindow, changedWindow === window else { return }
+        fulfillFocusRequest()
+    }
+
+    private func fulfillFocusRequest() {
+        guard focusRequested, let window,
+              window.makeFirstResponder(self) else { return }
+        focusRequested = false
+        if let requestedLine { selectLine(requestedLine) }
+        requestedLine = nil
     }
 
     @objc private func historyChanged(_ notification: Notification) {

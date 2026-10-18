@@ -26,6 +26,7 @@ struct NotchView: View {
     @Bindable var store: NoteStore
     @Bindable var state: PanelState
     let onEdit: () -> Void
+    let onToggleEditor: () -> Void
     let onClose: () -> Void
     let onEscape: () -> Void
     let onSelectSection: (UUID) -> Void
@@ -142,10 +143,7 @@ struct NotchView: View {
             Divider().overlay(ink.opacity(0.08)).padding(.top, 10)
             HStack(spacing: 12) {
                 if state.contentMode == .editing {
-                    Button {
-                        state.showingEditor.toggle()
-                        state.focusID += 1
-                    } label: {
+                    Button(action: onToggleEditor) {
                         Label(state.showingEditor ? (store.isMeetingOverview ? "查看汇总" : "勾选待办") : "继续写",
                               systemImage: state.showingEditor ? "checklist" : "pencil")
                     }.help("切换编辑和可勾选的预览")

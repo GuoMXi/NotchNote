@@ -32,8 +32,11 @@ struct NoteEditor: NSViewRepresentable {
         editor.textContainerInset = NSSize(width: 6, height: 10)
         editor.isVerticallyResizable = true
         editor.isHorizontallyResizable = false
+        editor.minSize = .zero
+        editor.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         editor.autoresizingMask = [.width]
         editor.textContainer?.widthTracksTextView = true
+        editor.textContainer?.heightTracksTextView = false
         editor.delegate = context.coordinator
         editor.onEscape = onEscape
         editor.textStorage?.setAttributedString(content)

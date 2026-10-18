@@ -179,6 +179,35 @@ import SwiftUI
         precondition(controller.panel.firstResponder === findEditor(in: host))
         print("PASS: 失去焦点后继续写与重新打开均恢复键盘响应，修改成功保存并可重读")
 
+        let longEditor = findEditor(in: host)!
+        let longText = (1...60).map { "第\($0)行：需要能够顺畅滚动并编辑到最后一行。" }.joined(separator: "\n")
+        longEditor.insertText(longText, replacementRange: NSRange(location: 0, length: longEditor.string.utf16.count))
+        pump(0.1)
+        let scroll = longEditor.enclosingScrollView!
+        longEditor.layoutManager?.ensureLayout(for: longEditor.textContainer!)
+        longEditor.scrollRangeToVisible(NSRange(location: longEditor.string.utf16.count, length: 0))
+        pump(0.1)
+        precondition(longEditor.visibleRect.minY > 0, "长内容应能向下滚动")
+        let lastGlyph = longEditor.layoutManager!.glyphRange(forCharacterRange: NSRange(location: longEditor.string.utf16.count - 1, length: 1), actualCharacterRange: nil)
+        let lastRect = longEditor.layoutManager!.boundingRect(forGlyphRange: lastGlyph, in: longEditor.textContainer!)
+            .offsetBy(dx: longEditor.textContainerOrigin.x, dy: longEditor.textContainerOrigin.y)
+        precondition(longEditor.visibleRect.contains(lastRect), "最后一行必须能完整滚入可视区域：visible=\(longEditor.visibleRect), last=\(lastRect), document=\(longEditor.frame), clip=\(scroll.contentView.bounds)")
+        print("PASS: 长便笺可以下滑至末行，末行完整显示")
+        controller.selectSection(controller.store.meetingsSectionID)
+        pump(0.05)
+        controller.selectSection(firstID)
+        controller.edit(animated: false)
+        pump(0.1)
+        let restoredEditor = findEditor(in: host)!
+        precondition(restoredEditor !== longEditor && restoredEditor.string == longText)
+        restoredEditor.scrollRangeToVisible(NSRange(location: restoredEditor.string.utf16.count, length: 0))
+        pump(0.1)
+        precondition(restoredEditor.visibleRect.minY > 0, "重开时 frame=\(restoredEditor.frame), max=\(restoredEditor.maxSize), used=\(restoredEditor.layoutManager!.usedRect(for: restoredEditor.textContainer!)), viewport=\(restoredEditor.enclosingScrollView!.contentView.bounds)")
+        restoredEditor.insertText("短便笺", replacementRange: NSRange(location: 0, length: restoredEditor.string.utf16.count))
+        pump(0.1)
+        precondition(restoredEditor.frame.height <= restoredEditor.enclosingScrollView!.contentSize.height + 1,
+                     "删去长内容后文档应收缩，不能留下大段空白滚动区")
+        print("PASS: 切换后已有长便笺仍可滚动，删短内容后滚动区域随之收缩")
     }
 
     @MainActor private static func pump(_ duration: TimeInterval) {

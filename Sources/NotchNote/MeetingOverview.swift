@@ -61,10 +61,12 @@ struct MeetingOverview: View {
                                             onEdit: { onOpenMeeting(meeting.reference) },
                                             meetingCheckbox: true, showMeetingBadge: false)
                                 Button { onOpenMeeting(meeting.reference) } label: {
-                                    Image(systemName: "arrow.up.right")
+                                    Text(meeting.projectTitle)
                                         .font(.system(size: 10, weight: .medium))
                                         .foregroundStyle(.secondary)
-                                        .frame(width: 20, height: 23)
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .frame(height: 23)
                                         .contentShape(Rectangle())
                                 }.buttonStyle(.plain)
                                     .help("来自\(meeting.projectTitle)，点击回到原项目")

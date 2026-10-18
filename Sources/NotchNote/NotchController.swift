@@ -7,16 +7,19 @@ final class NotchPanel: NSPanel {
 }
 
 final class NotchController: NSObject {
-    let store = NoteStore()
+    let store: NoteStore
     let state = PanelState()
-    private let panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+    let panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                                    backing: .buffered, defer: false)
     private var collapseTask: Task<Void, Never>?
     private var previousApp: NSRunningApplication?
     private var geometry: PanelGeometry?
     private var keyMonitor: Any?
+    private var container: NotchContainer?
+    private var presentationID = 0
 
-    override init() {
+    init(store: NoteStore = NoteStore()) {
+        self.store = store
         super.init()
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -29,15 +32,18 @@ final class NotchController: NSObject {
             onHover: { [weak self] in self?.hover($0) },
             onEdit: { [weak self] in self?.edit() },
             onClose: { [weak self] in self?.collapse() },
+            onEscape: { [weak self] in self?.collapse(animated: false) },
             onExport: { [weak self] in self?.export() }))
         host.sizingOptions = []
-        panel.contentView = host
+        let container = NotchContainer(host: host)
+        self.container = container
+        panel.contentView = container
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.panel, event.keyCode == 53,
                   (self.panel.firstResponder as? NSTextView)?.hasMarkedText() != true else { return event }
-            self.collapse()
+            self.collapse(animated: false)
             return nil
         }
         screenChanged()
@@ -50,22 +56,54 @@ final class NotchController: NSObject {
             return
         }
         geometry = PanelGeometry(screen: screen)
-        layout()
+        if let geometry {
+            state.surfaceSize = geometry.frame(expanded: true).size
+            state.compactWidth = geometry.compactWidth
+            container?.surfaceSize = state.surfaceSize
+        }
+        present(state.mode != .collapsed, animated: false)
         panel.orderFrontRegardless()
     }
 
-    private func layout() {
+    private func layout(expanded: Bool) {
         guard let geometry else { return }
         // Anchor the top edge below the physical camera so no controls are obscured.
-        panel.setFrame(geometry.frame(expanded: state.mode != .collapsed), display: true)
-        panel.hasShadow = state.mode != .collapsed
+        panel.setFrame(geometry.frame(expanded: expanded), display: true)
+        container?.needsLayout = true
+        container?.layoutSubtreeIfNeeded()
+        panel.hasShadow = expanded
+    }
+
+    private func present(_ visible: Bool, animated: Bool) {
+        presentationID += 1
+        let ticket = presentationID
+        if visible { layout(expanded: true) }
+
+        guard animated else {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { state.revealed = visible }
+            layout(expanded: visible)
+            return
+        }
+
+        let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        withAnimation(NotchMotion.animation(reduceMotion: reduced), completionCriteria: .removed) {
+            state.revealed = visible
+        } completion: { [weak self] in
+            guard let self, self.presentationID == ticket, !visible,
+                  self.state.mode == .collapsed else { return }
+            // Shrink the native hit area only after the outgoing paper has disappeared.
+            self.layout(expanded: false)
+        }
     }
 
     func hover(_ inside: Bool) {
         collapseTask?.cancel()
         if inside && state.mode == .collapsed {
             state.mode = .preview
-            layout()
+            state.contentMode = .preview
+            present(true, animated: true)
         } else if !inside && state.mode == .preview {
             collapseTask = Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(350))
@@ -75,27 +113,28 @@ final class NotchController: NSObject {
         }
     }
 
-    func edit() {
+    func edit(animated: Bool = true) {
         collapseTask?.cancel()
         if state.mode != .editing { previousApp = NSWorkspace.shared.frontmostApplication }
         state.mode = .editing
+        state.contentMode = .editing
         state.showingEditor = true
-        layout()
+        present(true, animated: animated)
         panel.orderFrontRegardless()
         panel.makeKey()
         state.focusID += 1
     }
 
-    func toggle() { state.mode == .editing ? collapse() : edit() }
+    func toggle() { state.mode == .editing ? collapse(animated: false) : edit(animated: false) }
 
-    func collapse() {
+    func collapse(animated: Bool = true) {
         collapseTask?.cancel()
         store.save()
         let wasEditing = state.mode == .editing
         panel.makeFirstResponder(nil)
         panel.resignKey()
         state.mode = .collapsed
-        layout()
+        present(false, animated: animated)
         if wasEditing, let previousApp, previousApp.processIdentifier != ProcessInfo.processInfo.processIdentifier,
            NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
             previousApp.activate()

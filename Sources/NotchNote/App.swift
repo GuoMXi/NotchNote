@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = item
         // First launch opens the empty page, subsequent launches stay quiet.
         if !UserDefaults.standard.bool(forKey: "hasLaunched") {
-            controller.edit()
+            controller.edit(animated: false)
             UserDefaults.standard.set(true, forKey: "hasLaunched")
         }
     }

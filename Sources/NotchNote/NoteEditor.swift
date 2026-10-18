@@ -12,6 +12,8 @@ struct NoteEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
         scroll.drawsBackground = false
         let editor = EditorTextView()
         editor.isRichText = false
@@ -54,7 +56,7 @@ struct NoteEditor: NSViewRepresentable {
             context.coordinator.focusID = focusID
             // The hosting view needs to join the window before becoming first responder.
             DispatchQueue.main.async { [weak editor] in
-                guard let editor else { return }
+                guard let editor, editor.window?.isKeyWindow == true else { return }
                 editor.window?.makeFirstResponder(editor)
             }
         }

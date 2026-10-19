@@ -1,5 +1,15 @@
 import Foundation
 
+nonisolated enum ScheduleKind: String, Codable, CaseIterable {
+    case deadline, meeting
+    var title: String { self == .deadline ? "截止时间" : "会议时间" }
+    var symbol: String { self == .deadline ? "flag" : "calendar" }
+}
+
+nonisolated enum ScheduleReminder: String, Codable {
+    case offset, onDay, dayBefore
+}
+
 nonisolated struct MeetingPlan: Codable, Equatable, Identifiable {
     var id = UUID()
     var sectionID: UUID
@@ -7,6 +17,28 @@ nonisolated struct MeetingPlan: Codable, Equatable, Identifiable {
     var raw: String
     var date: Date
     var reminderMinutes: Int?
+    // Missing fields in existing documents retain their original meeting meaning.
+    var kind: ScheduleKind? = nil
+    var dateOnly: Bool? = nil
+    var reminderRule: ScheduleReminder? = nil
+
+    var scheduleKind: ScheduleKind { kind ?? .meeting }
+    var isDateOnly: Bool { scheduleKind == .deadline && dateOnly == true }
+
+    func dueDate(calendar: Calendar = .current) -> Date {
+        guard isDateOnly else { return date }
+        return calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: date)) ?? date
+    }
+
+    func reminderDate(calendar: Calendar = .current) -> Date? {
+        guard let minutes = reminderMinutes else { return nil }
+        switch reminderRule ?? .offset {
+        case .offset: return dueDate(calendar: calendar).addingTimeInterval(-Double(minutes) * 60)
+        case .onDay, .dayBefore:
+            let day = calendar.date(byAdding: .day, value: reminderRule == .dayBefore ? -1 : 0, to: date) ?? date
+            return calendar.date(bySettingHour: 9, minute: 0, second: 0, of: day)
+        }
+    }
 }
 
 nonisolated enum MeetingAnchors {
@@ -42,9 +74,16 @@ nonisolated enum MeetingAnchors {
             }
             guard let target, after.indices.contains(target) else { return nil }
             let line = NoteLine(id: target, raw: after[target])
-            if NoteLine(id: original.lineIndex, raw: original.raw).isMeeting && !line.isMeeting { return nil }
-            guard (hub || line.isMeeting), !line.displayText.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+            if original.scheduleKind == .meeting && NoteLine(id: original.lineIndex, raw: original.raw).isMeeting && !line.isMeeting { return nil }
+            guard (original.scheduleKind == .deadline || hub || line.isMeeting), !line.displayText.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+            guard original.scheduleKind != .deadline || line.isTask else { return nil }
             var result = original
+            if original.scheduleKind == .deadline && line.isMeeting {
+                result.kind = .meeting
+                result.dateOnly = false
+                result.reminderRule = .offset
+                result.reminderMinutes = nil
+            }
             result.lineIndex = target
             result.raw = line.raw
             return result
@@ -65,9 +104,9 @@ nonisolated struct MeetingReminderRequest: Equatable {
             let lines = NoteLine.parse(section.text)
             guard lines.indices.contains(plan.lineIndex), lines[plan.lineIndex].raw == plan.raw,
                   !lines[plan.lineIndex].isDone else { return nil }
-            let fire = plan.date.addingTimeInterval(-Double(minutes) * 60)
+            guard let fire = plan.reminderDate() else { return nil }
             guard fire > now else { return nil }
-            return MeetingReminderRequest(id: plan.id, title: "会议提醒 · \(section.title)",
+            return MeetingReminderRequest(id: plan.id, title: "\(plan.scheduleKind == .deadline ? "截止提醒" : "会议提醒") · \(section.title)",
                                           body: lines[plan.lineIndex].displayText, fireDate: fire)
         }.sorted { $0.fireDate < $1.fireDate }
     }

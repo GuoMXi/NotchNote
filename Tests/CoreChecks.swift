@@ -28,7 +28,7 @@ import Foundation
         let legacyData = try JSONEncoder().encode(NoteDocument(text: legacyText))
         try legacyData.write(to: legacyURL)
         let migrated = NoteStore(url: legacyURL)
-        precondition(migrated.sections.map(\.title) == ["近期会议", "项目甲", "项目乙"])
+        precondition(migrated.sections.map(\.title) == ["近期", "项目甲", "项目乙"])
         precondition(migrated.totalPendingCount == 2 && migrated.pendingCount == 1)
         let backups = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
             .filter { $0.lastPathComponent.hasPrefix("legacy.v1-") }

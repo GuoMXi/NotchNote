@@ -131,7 +131,7 @@ nonisolated enum NotebookMigration {
     var projectMeetings: [ProjectMeeting] {
         var result: [ProjectMeeting] = []
         for section in sections where section.id != meetingsSectionID {
-            for rendered in RichText.lines(attributedText(in: section.id)) where rendered.line.isMeeting &&
+            for rendered in RichText.lines(attributedText(in: section.id)) where (rendered.line.isMeeting || plan(in: section.id, line: rendered.id) != nil) &&
                 !rendered.line.displayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 result.append(ProjectMeeting(reference: MeetingReference(sectionID: section.id, lineIndex: rendered.id,
                                                                         expectedRaw: rendered.line.raw),
@@ -146,9 +146,9 @@ nonisolated enum NotebookMigration {
         guard let section = sections.first(where: { $0.id == reference.sectionID }) else { return nil }
         let lines = NoteLine.parse(section.text)
         if lines.indices.contains(reference.lineIndex), lines[reference.lineIndex].raw == reference.expectedRaw {
-            return lines[reference.lineIndex].isMeeting || section.id == meetingsSectionID ? lines[reference.lineIndex] : nil
+            return lines[reference.lineIndex].displayText.trimmingCharacters(in: .whitespaces).isEmpty ? nil : lines[reference.lineIndex]
         }
-        let matches = lines.filter { $0.raw == reference.expectedRaw && ($0.isMeeting || section.id == meetingsSectionID) }
+        let matches = lines.filter { $0.raw == reference.expectedRaw && !$0.displayText.trimmingCharacters(in: .whitespaces).isEmpty }
         return matches.count == 1 ? matches[0] : nil
     }
 
@@ -200,26 +200,32 @@ nonisolated enum NotebookMigration {
     }
 
     @discardableResult func setMeetingPlan(_ reference: MeetingReference, date: Date, reminderMinutes: Int?) -> Bool {
-        guard date.timeIntervalSince1970.isFinite,
-              reminderMinutes == nil || [0, 5, 10, 15, 30, 60, 1440].contains(reminderMinutes!) else { return false }
-        var target = reference
-        if resolve(target) == nil {
-            guard let current = self.reference(forLine: reference.lineIndex, in: reference.sectionID),
-                  current == reference else { return false }
-            toggleMeetingMark(reference.lineIndex, in: reference.sectionID)
-            guard let marked = self.reference(forLine: reference.lineIndex, in: reference.sectionID) else { return false }
-            target = marked
-        }
-        if let line = resolve(target), !line.isTask && !line.isMeeting {
-            toggleMeetingMark(line.id, in: target.sectionID)
-            guard let marked = self.reference(forLine: line.id, in: target.sectionID) else { return false }
-            target = marked
-        }
-        guard let line = resolve(target), !line.displayText.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        setSchedule(reference, date: date, kind: .meeting, dateOnly: false, reminderMinutes: reminderMinutes)
+    }
+
+    @discardableResult func setSchedule(_ reference: MeetingReference, date: Date, kind: ScheduleKind,
+                                       dateOnly: Bool, reminderMinutes: Int?, reminderRule: ScheduleReminder = .offset) -> Bool {
+        guard canSave, date.timeIntervalSince1970.isFinite,
+              reminderMinutes == nil || [0, 5, 10, 15, 30, 60, 1440].contains(reminderMinutes!),
+              let line = resolve(reference) else { return false }
         let existing = plan(in: reference.sectionID, line: line.id)
+        let value = NSMutableAttributedString(attributedString: attributedText(in: reference.sectionID))
+        let location = NoteLine.parse(value.string).prefix(line.id).reduce(0) { $0 + ($1.raw as NSString).length + 1 }
+        if (kind == .meeting) != line.isMeeting {
+            let edit = MeetingMarkerEdit.toggle(line: line, location: location)
+            value.replaceCharacters(in: edit.range, with: edit.replacement)
+        }
+        if kind == .deadline && !line.isTask {
+            value.replaceCharacters(in: NSRange(location: location, length: 0), with: "- [ ] ")
+        }
+        if value.string != text(in: reference.sectionID) { updateRichText(value, in: reference.sectionID) }
+        guard saveError == nil, let target = self.reference(forLine: line.id, in: reference.sectionID) else { return false }
         meetingPlans.removeAll { $0.sectionID == reference.sectionID && $0.lineIndex == line.id }
         meetingPlans.append(MeetingPlan(id: existing?.id ?? UUID(), sectionID: reference.sectionID,
-                                       lineIndex: line.id, raw: line.raw, date: date, reminderMinutes: reminderMinutes))
+                                       lineIndex: line.id, raw: target.expectedRaw,
+                                       date: dateOnly && kind == .deadline ? Calendar.current.startOfDay(for: date) : date,
+                                       reminderMinutes: reminderMinutes, kind: kind, dateOnly: dateOnly && kind == .deadline,
+                                       reminderRule: reminderRule))
         save()
         return saveError == nil
     }
@@ -277,7 +283,7 @@ nonisolated enum NotebookMigration {
         .appending(path: "NotchNote", directoryHint: .isDirectory).appending(path: "note.json")) {
         self.url = url
         let initial = NoteSection(title: "随手记", text: "", tint: 0)
-        let meetings = NoteSection(title: "近期会议", text: "", tint: 0)
+        let meetings = NoteSection(title: "近期", text: "", tint: 0)
         sections = [meetings, initial]
         selectedID = initial.id
         scratchSectionID = initial.id
@@ -317,13 +323,16 @@ nonisolated enum NotebookMigration {
             saveError = "未能读取原便笺，已保护原文件。请先导出当前内容，再检查 note.json。"
         }
         if canSave, !sections.contains(where: { $0.id == meetingsSectionID }) {
-            if let existing = sections.first(where: { $0.title == "近期会议" }) {
+            if let existing = sections.first(where: { $0.title == "近期会议" || $0.title == "近期" }) {
                 meetingsSectionID = existing.id
             } else {
-                let meetings = NoteSection(title: "近期会议", text: "", tint: 0)
+                let meetings = NoteSection(title: "近期", text: "", tint: 0)
                 sections.insert(meetings, at: 0)
                 meetingsSectionID = meetings.id
             }
+        }
+        if canSave, let hubIndex = sections.firstIndex(where: { $0.id == meetingsSectionID }), sections[hubIndex].title == "近期会议" {
+            sections[hubIndex].title = "近期"
         }
         if scratchSectionID == nil || scratchSectionID == meetingsSectionID || !sections.contains(where: { $0.id == scratchSectionID }) {
             scratchSectionID = sections.first(where: { $0.title == "随手记" && $0.id != meetingsSectionID })?.id
@@ -337,7 +346,7 @@ nonisolated enum NotebookMigration {
             guard let section = sections.first(where: { $0.id == plan.sectionID }) else { return false }
             let lines = NoteLine.parse(section.text)
             guard lines.indices.contains(plan.lineIndex), lines[plan.lineIndex].raw == plan.raw,
-                  (section.id == meetingsSectionID || lines[plan.lineIndex].isMeeting),
+                  (plan.scheduleKind == .deadline || section.id == meetingsSectionID || lines[plan.lineIndex].isMeeting),
                   !lines[plan.lineIndex].displayText.trimmingCharacters(in: .whitespaces).isEmpty,
                   plan.date.timeIntervalSince1970.isFinite,
                   plan.reminderMinutes == nil || [0, 5, 10, 15, 30, 60, 1440].contains(plan.reminderMinutes!) else { return false }
@@ -399,7 +408,8 @@ nonisolated enum NotebookMigration {
         let lines = NoteLine.parse(deleted.section.text)
         for original in deleted.plans {
             guard original.sectionID == id, lines.indices.contains(original.lineIndex),
-                  lines[original.lineIndex].raw == original.raw, lines[original.lineIndex].isMeeting,
+                  lines[original.lineIndex].raw == original.raw,
+                  (original.scheduleKind == .deadline || lines[original.lineIndex].isMeeting),
                   !meetingPlans.contains(where: { $0.id == original.id }) else { continue }
             var plan = original
             plan.reminderMinutes = nil

@@ -38,7 +38,7 @@ struct ProjectBookmarks: View {
                             .accessibilityLabel("打开随手记，记录零散任务")
                     }
                     ForEach(store.sections.filter { $0.id != store.meetingsSectionID && $0.id != store.scratchSectionID }) { section in bookmark(section) }
-                }.padding(.top, 12).padding(.leading, 4)
+                }.padding(.top, 20).padding(.leading, 4)
             }
             HStack(spacing: 0) { addButton; trashButton }
                 .padding(.leading, 4).padding(.bottom, 6)
@@ -93,7 +93,7 @@ struct ProjectBookmarks: View {
                     if store.deletedSections.isEmpty {
                         Text("暂无已删除项目").font(.system(size: 12)).foregroundStyle(.secondary)
                     } else {
-                        Text("恢复时保留文字、格式和会议时间；提醒恢复为关闭，可重新开启。")
+                        Text("恢复时保留文字、格式和事项时间；提醒恢复为关闭，可重新开启。")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                         ScrollView {
                             VStack(spacing: 12) {
@@ -117,15 +117,9 @@ struct ProjectBookmarks: View {
         let count = store.pendingCount(in: section)
         let color = colors[(section.tint % colors.count + colors.count) % colors.count]
         return Button { if section.id == store.scratchSectionID { onOpenScratch() } else { onSelect(section.id) } } label: {
-            HStack(spacing: 2) {
-                Text(section.title).font(.system(size: 11, weight: selected ? .bold : .medium))
-                    .lineLimit(2).multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                if count > 0 {
-                    Text(count > 99 ? "99+" : "\(count)")
-                        .font(.system(size: 9, weight: .semibold)).opacity(0.65)
-                }
-            }
+            Text(section.title).font(.system(size: 11, weight: selected ? .semibold : .regular))
+                .lineLimit(2).multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
             .foregroundStyle(Color.black.opacity(selected ? 0.85 : 0.65))
             .padding(.horizontal, 6).frame(height: 42)
             .background(color.opacity(selected ? 1 : 0.78))

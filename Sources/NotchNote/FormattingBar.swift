@@ -9,13 +9,13 @@ struct FormattingBar: View {
     let onInteraction: (String, Bool) -> Void
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             Button { state.formattingPresented.toggle() } label: {
                 HStack(spacing: 4) {
                     Text("Aa").font(.system(size: 13, weight: .medium))
                     Text("\(Int(state.editorStyle.size))").font(.system(size: 10))
                     Image(systemName: "chevron.down").font(.system(size: 8))
-                }.padding(.horizontal, 7).frame(height: 26)
+                }.padding(.horizontal, 0).frame(height: 26)
             }
             .help("字体、字号和文字颜色").accessibilityLabel("字体与颜色")
             .popover(isPresented: $state.formattingPresented, arrowEdge: .bottom) { controls }
@@ -25,7 +25,7 @@ struct FormattingBar: View {
             Button { onCommand(.meeting) } label: {
                 Label("会议", systemImage: "calendar").font(.system(size: 11, weight: .medium))
                     .padding(.horizontal, 5).frame(height: 26)
-                    .background(state.editorStyle.meeting ? Color.orange.opacity(0.2) : Color.black.opacity(0.04),
+                    .background(state.editorStyle.meeting ? Color.orange.opacity(0.2) : Color.clear,
                                 in: RoundedRectangle(cornerRadius: 5))
             }.help("标记或取消当前行为会议 · ⌘⇧M")
                 .accessibilityLabel("切换当前行为会议")
@@ -35,10 +35,10 @@ struct FormattingBar: View {
                                       onInteraction: onInteraction, compact: false)
             }
             Spacer(minLength: 0)
-            Text("选字设格式").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+
         }
         .buttonStyle(.plain)
-        .padding(.bottom, 6)
+        .padding(.bottom, 8)
         .onChange(of: state.formattingPresented) { _, visible in onInteraction("format", visible) }
         .onDisappear { if state.formattingPresented { onInteraction("format", false) } }
     }
@@ -46,7 +46,7 @@ struct FormattingBar: View {
     private func styleButton(_ symbol: String, name: String, shortcut: String, active: Bool, command: EditorCommand) -> some View {
         Button { onCommand(command) } label: {
             Image(systemName: symbol).font(.system(size: 12, weight: .medium)).frame(width: 26, height: 26)
-                .background(active ? Color.yellow.opacity(0.4) : Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+                .background(active ? Color.yellow.opacity(0.4) : Color.clear, in: RoundedRectangle(cornerRadius: 5))
         }.help("\(name) · \(shortcut)").accessibilityLabel(name).accessibilityValue(active ? "已启用" : "未启用")
     }
 

@@ -110,7 +110,7 @@ struct NotchView: View {
 
     private var notePaper: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .center, spacing: 8) {
                 Text(store.selectedSection.title)
                     .font(.system(size: 20, weight: .semibold))
                     .lineLimit(1).minimumScaleFactor(0.7)
@@ -141,11 +141,11 @@ struct NotchView: View {
                     Text("\(store.pendingCount) 件待办")
                         .font(.system(size: 11, weight: .medium)).foregroundStyle(ink.opacity(0.6))
                 }
-            }.padding(.bottom, 12)
+            }.frame(minHeight: 28).padding(.bottom, 10)
 
             if state.contentMode == .editing && state.showingEditor {
                 if store.isMeetingOverview {
-                    Text("这里编辑直接记录的会议，项目中的会议会在汇总中自动显示。")
+                    Text("记录任务或会议，设置时间后自动排列。")
                         .font(.system(size: 10)).foregroundStyle(.secondary).padding(.bottom, 6)
                 }
                 FormattingBar(state: state, store: store, reminders: reminders, onCommand: { command in
@@ -156,7 +156,7 @@ struct NotchView: View {
                     if store.text.isEmpty {
                         Text(store.isScratch ? "零散的小任务，先记在这里。\n\n一行一件事，不必专门建项目。" : "写下此刻想到的事…\n\n不必整理好，先记下来。")
                             .font(.system(size: 15)).lineSpacing(7)
-                            .foregroundStyle(ink.opacity(0.4)).padding(.top, 10).padding(.leading, 6)
+                            .foregroundStyle(ink.opacity(0.4)).padding(.top, 8)
                             .allowsHitTesting(false)
                     }
                     editor
@@ -167,7 +167,7 @@ struct NotchView: View {
                 preview
             }
 
-            Divider().overlay(ink.opacity(0.08)).padding(.top, 10)
+            Divider().overlay(ink.opacity(0.05)).padding(.top, 8)
             HStack(spacing: 12) {
                 if state.contentMode == .editing {
                     Button(action: onToggleEditor) {
@@ -179,7 +179,7 @@ struct NotchView: View {
                             .help("将当前行转为待办 · ⌘⇧L").accessibilityLabel("切换当前行为待办")
                     }
                 } else {
-                    Button(action: onEdit) { Label(store.isMeetingOverview ? "直接写会议" : "点击开始写", systemImage: "pencil") }
+                    Button(action: onEdit) { Label(store.isMeetingOverview ? "记一件事" : "点击开始写", systemImage: "pencil") }
                 }
                 Spacer(minLength: 0)
                 Button(action: onExport) { Image(systemName: "square.and.arrow.up") }
@@ -187,13 +187,10 @@ struct NotchView: View {
                 Text(store.saveError == nil ? (store.savedAt == nil ? "本机保存" : "已保存") : "保存异常")
                     .foregroundStyle(store.saveError == nil ? ink.opacity(0.45) : .red)
             }
-            .font(.system(size: 11)).buttonStyle(.plain).padding(.top, 12)
+            .font(.system(size: 11)).buttonStyle(.plain).frame(height: 30).padding(.top, 4)
 
             if let error = store.saveError {
                 Text(error).font(.system(size: 10)).foregroundStyle(.red).padding(.top, 8)
-            } else if state.contentMode == .editing {
-                Text(state.shortcutAvailable ? "⌃⌥空格 随时唤出  ·  Esc 收起  ·  ⌘⇧L 待办" : "快捷键被占用，可通过菜单栏打开")
-                    .font(.system(size: 10)).foregroundStyle(ink.opacity(0.4)).padding(.top, 8)
             }
         }
         .foregroundStyle(ink).padding(20).background(paper)
@@ -214,14 +211,14 @@ struct NotchView: View {
     }
 
     private func scheduleButton(for rendered: RichText.Line) -> MeetingScheduleButton? {
-        guard rendered.line.isMeeting,
+        guard rendered.line.isTask || rendered.line.isMeeting,
               let reference = store.reference(forLine: rendered.id, in: store.selectedID) else { return nil }
         return MeetingScheduleButton(store: store, reference: reference, reminders: reminders, onInteraction: onInteraction)
     }
 
     private var preview: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 9) {
+            VStack(alignment: .leading, spacing: 2) {
                 if store.text.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         Text(store.isScratch ? "小事不用单独建项目。" : "把脑子里的事，暂放在这里。")

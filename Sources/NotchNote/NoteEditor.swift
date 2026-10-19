@@ -29,12 +29,13 @@ struct NoteEditor: NSViewRepresentable {
         editor.typingAttributes = RichText.defaults
         editor.insertionPointColor = .black
         editor.drawsBackground = false
-        editor.textContainerInset = NSSize(width: 6, height: 10)
+        editor.textContainerInset = NSSize(width: 0, height: 8)
         editor.isVerticallyResizable = true
         editor.isHorizontallyResizable = false
         editor.minSize = .zero
         editor.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         editor.autoresizingMask = [.width]
+        editor.textContainer?.lineFragmentPadding = 0
         editor.textContainer?.widthTracksTextView = true
         editor.textContainer?.heightTracksTextView = false
         editor.delegate = context.coordinator

@@ -82,6 +82,67 @@ import UserNotifications
         precondition(store.attributedText(in: direct).isEqual(to: canonical))
         print("PASS: 会议日期独立保存，不改变正文和富文本格式")
 
+        let deadlineProject = store.addSection(title: "截止测试")!
+        let styledDeadline = NSMutableAttributedString(string: "交稿🙂\n无时间的小事", attributes: RichText.defaults)
+        styledDeadline.addAttribute(.underlineStyle, value: 1, range: NSRange(location: 0, length: 4))
+        store.updateRichText(styledDeadline, in: deadlineProject)
+        let dueDay = calendar.date(from: DateComponents(year: 2027, month: 3, day: 14, hour: 12))!
+        precondition(store.setSchedule(store.reference(forLine: 0, in: deadlineProject)!, date: dueDay,
+                                       kind: .deadline, dateOnly: true, reminderMinutes: nil))
+        precondition(store.text == "- [ ] 交稿🙂\n无时间的小事")
+        let deadlineID = store.plan(in: deadlineProject, line: 0)!.id
+        precondition(store.projectMeetings.filter { $0.reference.sectionID == deadlineProject }.count == 1)
+        precondition(store.attributedText(in: deadlineProject).attribute(.underlineStyle, at: 6, effectiveRange: nil) as? Int == 1)
+        let roundTrip = NoteStore(url: url)
+        precondition(roundTrip.plan(in: deadlineProject, line: 0)?.scheduleKind == .deadline)
+        precondition(roundTrip.plan(in: deadlineProject, line: 0)?.isDateOnly == true)
+        print("PASS: 普通行设截止自动成为任务，保留富文本，未定日期小事不进入近期，重启保留类型")
+
+        let samplePlan = MeetingPlan(sectionID: deadlineProject, lineIndex: 0, raw: "- [ ] 交稿", date: dueDay,
+                                     reminderMinutes: 0, kind: .deadline, dateOnly: true, reminderRule: .onDay)
+        let dueParts = calendar.dateComponents([.day, .hour], from: samplePlan.dueDate(calendar: calendar))
+        precondition(dueParts.day == 15 && dueParts.hour == 0)
+        let fireParts = calendar.dateComponents([.day, .hour], from: samplePlan.reminderDate(calendar: calendar)!)
+        precondition(fireParts.day == 14 && fireParts.hour == 9)
+        var previousDay = samplePlan
+        previousDay.reminderRule = .dayBefore
+        let previousParts = calendar.dateComponents([.day, .hour], from: previousDay.reminderDate(calendar: calendar)!)
+        precondition(previousParts.day == 13 && previousParts.hour == 9)
+        let legacyPlan = try JSONDecoder().decode(MeetingPlan.self, from: Data("{\"id\":\"\(UUID())\",\"sectionID\":\"\(deadlineProject)\",\"lineIndex\":0,\"raw\":\"旧会议\",\"date\":0}".utf8))
+        precondition(legacyPlan.scheduleKind == .meeting && !legacyPlan.isDateOnly)
+        print("PASS: 仅日期截止持续到次日零点，夏令时当天及前一天九点提醒正确，旧计划兼容")
+
+        let sampleRef = MeetingReference(sectionID: deadlineProject, lineIndex: 0, expectedRaw: "- [ ] 交稿")
+        let sampleItem = ProjectMeeting(reference: sampleRef, projectTitle: "测试",
+                                       rendered: RichText.lines(NSAttributedString(string: "- [ ] 交稿"))[0], plan: samplePlan)
+        precondition(sampleItem.group(now: dueDay, calendar: calendar) == .today)
+        precondition(sampleItem.group(now: samplePlan.dueDate(calendar: calendar), calendar: calendar) == .overdue)
+        var oldMeeting = sampleItem
+        oldMeeting.plan?.kind = .meeting
+        oldMeeting.plan?.dateOnly = false
+        precondition(oldMeeting.group(now: calendar.date(byAdding: .day, value: 2, to: dueDay)!, calendar: calendar) == .past)
+        print("PASS: 日期截止当天不误判逾期，会议过时归档而非标成逾期")
+
+        precondition(store.setSchedule(store.reference(forLine: 0, in: deadlineProject)!, date: dueDay,
+                                       kind: .meeting, dateOnly: false, reminderMinutes: nil))
+        precondition(store.text.hasPrefix("- [ ] #会议 交稿🙂"))
+        precondition(store.plan(in: deadlineProject, line: 0)?.id == deadlineID)
+        precondition(store.setSchedule(store.reference(forLine: 0, in: deadlineProject)!, date: dueDay,
+                                       kind: .deadline, dateOnly: true, reminderMinutes: 0, reminderRule: .dayBefore))
+        precondition(store.text.hasPrefix("- [ ] 交稿🙂"))
+        precondition(store.plan(in: deadlineProject, line: 0)?.id == deadlineID)
+        store.updateText("新增说明\n" + store.text, in: deadlineProject)
+        precondition(store.plan(in: deadlineProject, line: 1)?.id == deadlineID)
+        store.toggleMeeting(store.reference(forLine: 1, in: deadlineProject)!)
+        precondition(store.overviewMeetings.first { $0.plan?.id == deadlineID }?.group(now: dueDay) == .completed)
+        precondition(store.deleteSection(deadlineProject))
+        precondition(store.restoreSection(deadlineProject) == deadlineProject)
+        precondition(store.plan(in: deadlineProject, line: 1)?.scheduleKind == .deadline)
+        precondition(store.plan(in: deadlineProject, line: 1)?.reminderMinutes == nil)
+        store.clearMeetingPlan(store.reference(forLine: 1, in: deadlineProject)!)
+        precondition(!store.projectMeetings.contains { $0.reference.sectionID == deadlineProject })
+        print("PASS: 会议与截止互转保留身份，行位移和完成同步，删除恢复保留截止且关闭提醒，清除后退出近期")
+
         // No system notifications or permission dialogs: exercise scheduling through a fake delivery.
         let delivery = FakeNotifications()
         let reminders = MeetingReminders(store: store, delivery: delivery)
@@ -147,6 +208,28 @@ import UserNotifications
         await reminders.synchronizeNow()
         precondition(delivery.requests.isEmpty && store.plan(in: direct, line: 0)?.date == future)
         print("PASS: 删除整个项目取消系统提醒，恢复保留会议时间且不会重新弹出提醒")
+        let deadlineFuture = Calendar.current.date(byAdding: .day, value: 2, to: .now)!
+        precondition(store.setSchedule(store.reference(forLine: 0, in: direct)!, date: deadlineFuture,
+                                       kind: .deadline, dateOnly: true, reminderMinutes: 0, reminderRule: .onDay))
+        await reminders.synchronizeNow()
+        let deadlineRequest = delivery.requests.values.first!
+        precondition(delivery.requests.count == 1 && deadlineRequest.title.hasPrefix("截止提醒"))
+        precondition(Calendar.current.component(.hour, from: deadlineRequest.fireDate) == 9)
+        store.toggleMeeting(store.reference(forLine: 0, in: direct)!)
+        await reminders.synchronizeNow()
+        precondition(delivery.requests.isEmpty)
+        store.toggleMeeting(store.reference(forLine: 0, in: direct)!)
+        store.toggleMeetingMark(0, in: direct)
+        precondition(store.plan(in: direct, line: 0)?.scheduleKind == .meeting)
+        precondition(store.plan(in: direct, line: 0)?.reminderMinutes == nil)
+        store.toggleMeetingMark(0, in: direct)
+        precondition(store.plan(in: direct, line: 0) == nil)
+        precondition(store.setSchedule(store.reference(forLine: 0, in: direct)!, date: deadlineFuture,
+                                       kind: .deadline, dateOnly: true, reminderMinutes: nil))
+        store.text = "恢复普通说明"
+        precondition(store.plan(in: direct, line: 0) == nil)
+        print("PASS: 日期截止发送九点提醒，完成后撤销，手动会议标记同步类型并关闭旧提醒，取消待办移除截止")
+
 
 
     }

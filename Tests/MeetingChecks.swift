@@ -137,6 +137,17 @@ import UserNotifications
         await finalSync.value
         precondition(delivery.requests.isEmpty)
         print("PASS: 通知异步安排途中删除会议，最终同步等待完成且不残留过期通知")
+        precondition(store.setMeetingPlan(store.reference(forLine: 0, in: direct)!, date: future, reminderMinutes: 5))
+        await reminders.synchronizeNow()
+        precondition(delivery.requests.count == 1)
+        precondition(store.deleteSection(direct))
+        await reminders.synchronizeNow()
+        precondition(delivery.requests.isEmpty)
+        precondition(store.restoreSection(direct) == direct)
+        await reminders.synchronizeNow()
+        precondition(delivery.requests.isEmpty && store.plan(in: direct, line: 0)?.date == future)
+        print("PASS: 删除整个项目取消系统提醒，恢复保留会议时间且不会重新弹出提醒")
+
 
     }
 }

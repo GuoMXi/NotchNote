@@ -208,6 +208,24 @@ import SwiftUI
         precondition(restoredEditor.frame.height <= restoredEditor.enclosingScrollView!.contentSize.height + 1,
                      "删去长内容后文档应收缩，不能留下大段空白滚动区")
         print("PASS: 切换后已有长便笺仍可滚动，删短内容后滚动区域随之收缩")
+        controller.addSection("删除交互检查")
+        pump(0.08)
+        let deletableID = controller.store.selectedID
+        let deletionEditor = findEditor(in: host)!
+        deletionEditor.insertText("尚未离开编辑器的内容", replacementRange: deletionEditor.selectedRange())
+        controller.deleteSection(deletableID)
+        pump(0.08)
+        precondition(controller.store.isScratch && !controller.state.showingEditor)
+        precondition(controller.store.deletedSections.first?.section.text == "尚未离开编辑器的内容")
+        controller.restoreSection(deletableID)
+        pump(0.08)
+        precondition(controller.store.selectedID == deletableID && controller.store.text == "尚未离开编辑器的内容")
+        controller.openScratch()
+        pump(0.08)
+        precondition(controller.store.isScratch && controller.state.showingEditor)
+        precondition(controller.panel.firstResponder === findEditor(in: host))
+        print("PASS: 删除先保存实时编辑内容，恢复正确项目，随手记直接进入可输入状态")
+
     }
 
     @MainActor private static func pump(_ duration: TimeInterval) {

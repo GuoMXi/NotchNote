@@ -33,6 +33,10 @@ struct NotchView: View {
     let onSelectSection: (UUID) -> Void
     let onOpenMeeting: (MeetingReference) -> Void
     let onAddSection: (String) -> Void
+    let onOpenScratch: () -> Void
+    let onDeleteSection: (UUID) -> Void
+    let onRestoreSection: (UUID) -> Void
+    @State private var projectActionsPresented = false
     let onTogglePin: () -> Void
     let onInteraction: (String, Bool) -> Void
     let onExport: () -> Void
@@ -100,7 +104,7 @@ struct NotchView: View {
     private var paperContents: some View {
         HStack(spacing: 0) {
             notePaper
-            ProjectBookmarks(store: store, onSelect: onSelectSection, onAdd: onAddSection, onInteraction: onInteraction)
+            ProjectBookmarks(store: store, onSelect: onSelectSection, onAdd: onAddSection, onOpenScratch: onOpenScratch, onRestore: onRestoreSection, onInteraction: onInteraction)
         }
     }
 
@@ -110,6 +114,28 @@ struct NotchView: View {
                 Text(store.selectedSection.title)
                     .font(.system(size: 20, weight: .semibold))
                     .lineLimit(1).minimumScaleFactor(0.7)
+                if store.canDeleteSection(store.selectedID) {
+                    Button { projectActionsPresented = true } label: {
+                        Image(systemName: "ellipsis").font(.system(size: 13)).frame(width: 24, height: 24)
+                    }.buttonStyle(.plain).help("项目管理").accessibilityLabel("项目管理")
+                        .popover(isPresented: $projectActionsPresented, arrowEdge: .bottom) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(store.selectedSection.title).font(.headline).lineLimit(2)
+                                Text("删除后可从侧边的“已删除项目”恢复。")
+                                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                                Button("删除项目", role: .destructive) {
+                                    let id = store.selectedID
+                                    projectActionsPresented = false
+                                    onDeleteSection(id)
+                                }
+                            }.padding(14).frame(width: 220)
+                        }
+                        .onChange(of: projectActionsPresented) { _, shown in onInteraction("project-actions", shown) }
+                        .onDisappear {
+                            projectActionsPresented = false
+                            onInteraction("project-actions", false)
+                        }
+                }
                 Spacer(minLength: 4)
                 if store.pendingCount > 0 {
                     Text("\(store.pendingCount) 件待办")
@@ -128,7 +154,7 @@ struct NotchView: View {
                 }, onInteraction: onInteraction)
                 ZStack(alignment: .topLeading) {
                     if store.text.isEmpty {
-                        Text("写下此刻想到的事…\n\n不必整理好，先记下来。")
+                        Text(store.isScratch ? "零散的小任务，先记在这里。\n\n一行一件事，不必专门建项目。" : "写下此刻想到的事…\n\n不必整理好，先记下来。")
                             .font(.system(size: 15)).lineSpacing(7)
                             .foregroundStyle(ink.opacity(0.4)).padding(.top, 10).padding(.leading, 6)
                             .allowsHitTesting(false)
@@ -198,11 +224,11 @@ struct NotchView: View {
             VStack(alignment: .leading, spacing: 9) {
                 if store.text.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("把脑子里的事，暂放在这里。")
+                        Text(store.isScratch ? "小事不用单独建项目。" : "把脑子里的事，暂放在这里。")
                             .font(.system(size: 16, weight: .medium))
-                        Text("一件待办、一闪而过的想法，\n或只是一句给自己的提醒。")
+                        Text(store.isScratch ? "临时待办和零散想法，一行记一件。\n用 ⌘⇧L 把当前行转成可勾选的任务。" : "一件待办、一闪而过的想法，\n或只是一句给自己的提醒。")
                             .font(.system(size: 14)).lineSpacing(5).foregroundStyle(ink.opacity(0.55))
-                        Button("写下第一句", action: onEdit)
+                        Button(store.isScratch ? "记录一件小事" : "写下第一句", action: onEdit)
                             .buttonStyle(.borderedProminent).tint(Color(red: 0.85, green: 0.69, blue: 0.25))
                             .foregroundStyle(ink).padding(.top, 8)
                     }.padding(.top, 20)

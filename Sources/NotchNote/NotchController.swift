@@ -41,6 +41,9 @@ final class NotchController: NSObject {
             onSelectSection: { [weak self] in self?.selectSection($0) },
             onOpenMeeting: { [weak self] in self?.openMeeting($0) },
             onAddSection: { [weak self] in self?.addSection($0) },
+            onOpenScratch: { [weak self] in self?.openScratch() },
+            onDeleteSection: { [weak self] in self?.deleteSection($0) },
+            onRestoreSection: { [weak self] in self?.restoreSection($0) },
             onTogglePin: { [weak self] in self?.togglePin() },
             onInteraction: { [weak self] in self?.interaction($0, active: $1) },
             onExport: { [weak self] in self?.export() }))
@@ -206,6 +209,26 @@ final class NotchController: NSObject {
         guard let id = store.addSection(title: title) else { return }
         selectSection(id)
         edit(animated: false)
+    }
+
+    func openScratch() {
+        finishEditing()
+        store.select(store.ensureScratchSection())
+        edit(animated: false)
+    }
+
+    func deleteSection(_ id: UUID) {
+        finishEditing()
+        let wasSelected = store.selectedID == id
+        guard store.deleteSection(id) else { return }
+        if wasSelected { selectSection(store.selectedID) }
+        else if state.mode == .editing && state.showingEditor { edit(animated: false) }
+    }
+
+    func restoreSection(_ id: UUID) {
+        finishEditing()
+        guard let restored = store.restoreSection(id) else { return }
+        selectSection(restored)
     }
 
     func openMeeting(_ reference: MeetingReference) {

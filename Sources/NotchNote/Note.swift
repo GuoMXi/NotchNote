@@ -42,12 +42,22 @@ nonisolated struct NoteSection: Codable, Identifiable, Equatable {
     var richText: Data? = nil
 }
 
+nonisolated struct DeletedSection: Codable, Identifiable {
+    var section: NoteSection
+    var plans: [MeetingPlan]
+    var index: Int
+    var deletedAt: Date
+    var id: UUID { section.id }
+}
+
 nonisolated struct NotebookDocument: Codable {
     var version = 2
     var sections: [NoteSection]
     var selectedID: UUID
     var meetingsSectionID: UUID? = nil
     var meetingPlans: [MeetingPlan]? = nil
+    var scratchSectionID: UUID? = nil
+    var deletedSections: [DeletedSection]? = nil
 }
 
 /// Converts standalone 【section titles】, preserving ungrouped text and completion marks.
@@ -84,6 +94,8 @@ nonisolated enum NotebookMigration {
     private(set) var selectedID: UUID
     private(set) var meetingsSectionID: UUID
     private(set) var meetingPlans: [MeetingPlan] = []
+    private(set) var scratchSectionID: UUID?
+    private(set) var deletedSections: [DeletedSection] = []
     @ObservationIgnored var onSave: (() -> Void)?
     private(set) var saveError: String?
     private(set) var savedAt: Date?
@@ -100,8 +112,9 @@ nonisolated enum NotebookMigration {
     var lines: [NoteLine] { NoteLine.parse(text) }
     var pendingCount: Int { pendingCount(in: selectedSection) }
     var totalPendingCount: Int { sections.reduce(0) { $0 + localPendingCount(in: $1) } }
+    var isScratch: Bool { selectedID == scratchSectionID }
     var isMeetingOverview: Bool { selectedID == meetingsSectionID }
-    var hasContent: Bool { sections.contains { !$0.text.isEmpty } }
+    var hasContent: Bool { sections.contains { !$0.text.isEmpty } || deletedSections.contains { !$0.section.text.isEmpty } }
     var exportText: String { sections.map { "【\($0.title)】\n\($0.text)" }.joined(separator: "\n\n") }
 
     func pendingCount(in section: NoteSection) -> Int {
@@ -267,6 +280,7 @@ nonisolated enum NotebookMigration {
         let meetings = NoteSection(title: "近期会议", text: "", tint: 0)
         sections = [meetings, initial]
         selectedID = initial.id
+        scratchSectionID = initial.id
         meetingsSectionID = meetings.id
         do {
             if FileManager.default.fileExists(atPath: url.path) {
@@ -287,6 +301,8 @@ nonisolated enum NotebookMigration {
                     }
                     sections = document.sections
                     meetingPlans = document.meetingPlans ?? []
+                    scratchSectionID = document.scratchSectionID
+                    deletedSections = document.deletedSections ?? []
                     selectedID = sections.contains { $0.id == document.selectedID } ? document.selectedID : sections[0].id
                     if let id = document.meetingsSectionID, sections.contains(where: { $0.id == id }) {
                         meetingsSectionID = id
@@ -308,6 +324,13 @@ nonisolated enum NotebookMigration {
                 sections.insert(meetings, at: 0)
                 meetingsSectionID = meetings.id
             }
+        }
+        if scratchSectionID == nil || scratchSectionID == meetingsSectionID || !sections.contains(where: { $0.id == scratchSectionID }) {
+            scratchSectionID = sections.first(where: { $0.title == "随手记" && $0.id != meetingsSectionID })?.id
+        }
+        var archivedIDs = Set<UUID>()
+        deletedSections = deletedSections.filter { archived in
+            !sections.contains(where: { $0.id == archived.id }) && archivedIDs.insert(archived.id).inserted
         }
         var usedPlanIDs = Set<UUID>(), usedPlanLines = Set<String>()
         meetingPlans = meetingPlans.filter { plan in
@@ -342,6 +365,51 @@ nonisolated enum NotebookMigration {
         return section.id
     }
 
+    func canDeleteSection(_ id: UUID) -> Bool {
+        id != meetingsSectionID && id != scratchSectionID && sections.contains { $0.id == id }
+    }
+
+    @discardableResult func ensureScratchSection() -> UUID {
+        if let scratchSectionID, sections.contains(where: { $0.id == scratchSectionID }) { return scratchSectionID }
+        let section = NoteSection(title: "随手记", text: "", tint: 1)
+        let index = sections.firstIndex(where: { $0.id == meetingsSectionID }).map { $0 + 1 } ?? 0
+        sections.insert(section, at: index)
+        scratchSectionID = section.id
+        save()
+        return section.id
+    }
+
+    @discardableResult func deleteSection(_ id: UUID) -> Bool {
+        guard canSave, canDeleteSection(id), let index = sections.firstIndex(where: { $0.id == id }) else { return false }
+        let deleted = DeletedSection(section: sections[index], plans: meetingPlans.filter { $0.sectionID == id },
+                                     index: index, deletedAt: .now)
+        deletedSections.insert(deleted, at: 0)
+        sections.remove(at: index)
+        meetingPlans.removeAll { $0.sectionID == id }
+        if selectedID == id { selectedID = ensureScratchSection() }
+        save()
+        return true
+    }
+
+    @discardableResult func restoreSection(_ id: UUID) -> UUID? {
+        guard canSave, let index = deletedSections.firstIndex(where: { $0.id == id }),
+              !sections.contains(where: { $0.id == id }) else { return nil }
+        let deleted = deletedSections.remove(at: index)
+        sections.insert(deleted.section, at: min(max(0, deleted.index), sections.count))
+        let lines = NoteLine.parse(deleted.section.text)
+        for original in deleted.plans {
+            guard original.sectionID == id, lines.indices.contains(original.lineIndex),
+                  lines[original.lineIndex].raw == original.raw, lines[original.lineIndex].isMeeting,
+                  !meetingPlans.contains(where: { $0.id == original.id }) else { continue }
+            var plan = original
+            plan.reminderMinutes = nil
+            meetingPlans.append(plan)
+        }
+        selectedID = id
+        save()
+        return id
+    }
+
     func toggle(_ line: Int) {
         toggleTask(line, in: selectedID, allowPlainMeeting: true)
     }
@@ -374,7 +442,8 @@ nonisolated enum NotebookMigration {
                 try legacyData.write(to: backup, options: .atomic)
             }
             let data = try JSONEncoder().encode(NotebookDocument(sections: sections, selectedID: selectedID,
-                                                               meetingsSectionID: meetingsSectionID, meetingPlans: meetingPlans))
+                                                               meetingsSectionID: meetingsSectionID, meetingPlans: meetingPlans,
+                                                               scratchSectionID: scratchSectionID, deletedSections: deletedSections))
             try data.write(to: url, options: .atomic)
             legacyData = nil
             savedAt = .now
